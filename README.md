@@ -46,8 +46,8 @@ If you prefer to set up manually or the start-all script doesn't work:
 
 ### 1. Clone the Repository
 ```bash
-git clone <repository-url>
-cd rubix-sim-flow
+git clone https://github.com/rubixchain/rubix-simulator.git
+cd rubix-simulator
 ```
 
 ### 2. Install Frontend Dependencies
@@ -284,7 +284,7 @@ npm run lint
 ### Recommended Settings
 
 - **Quick Test**: 2 nodes, 10 transactions
-- **Standard Test**: 5 nodes, 50 transactions  
+- **Standard Test**: 5 nodes, 50 transactions
 - **Stress Test**: 15-20 nodes, 200-500 transactions
 
 ### Resource Usage
