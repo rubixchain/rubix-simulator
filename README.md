@@ -179,59 +179,6 @@ Symptom: High transaction failure rate
 - Shutdown and restart nodes if running for extended period
 - Verify network connectivity
 
-### Timeout on Shutdown
-```
-Error: "Context deadline exceeded"
-```
-**Solution:** Already handled - the system now force-kills unresponsive nodes after 2 seconds
-
-## 🚢 Production Deployment
-
-### Environment Configuration
-
-Create `.env` file in backend directory:
-```env
-PORT=8080
-REPORTS_PATH=./reports
-MAX_NODES=20
-MAX_TRANSACTIONS=500
-```
-
-### Building for Production
-
-**Backend:**
-```bash
-cd backend
-# Windows
-go build -ldflags="-s -w" -o rubix-simulator.exe cmd/server/main.go
-
-# Linux/Mac
-go build -ldflags="-s -w" -o rubix-simulator cmd/server/main.go
-```
-
-**Frontend:**
-```bash
-npm run build
-# Deploy the 'dist' folder to your web server
-```
-
-### Docker Deployment (Optional)
-
-```dockerfile
-# Dockerfile example
-FROM golang:1.19 AS backend-builder
-WORKDIR /app
-COPY backend/ .
-RUN go build -o server cmd/server/main.go
-
-FROM node:16 AS frontend-builder
-WORKDIR /app
-COPY . .
-RUN npm install && npm run build
-
-FROM ubuntu:22.04
-# Copy built artifacts and run
-```
 
 ## 📁 Project Structure
 
@@ -349,16 +296,3 @@ npm run dev                               # Terminal 2
 # Build for production
 cd backend && go build -o server cmd/server/main.go
 npm run build
-
-# Clean up test data
-rm -rf rubix-data/ node*/ testnode*/
-rm -rf reports/*.pdf
-
-# Check ports
-netstat -an | grep 8080  # Linux/Mac
-netstat -an | findstr 8080  # Windows
-```
-
----
-
-Built with ❤️ for testing and analyzing the Rubix blockchain network
