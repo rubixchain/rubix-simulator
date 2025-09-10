@@ -24,9 +24,9 @@ trap cleanup INT TERM
 
 # Start Backend
 echo "Starting Go Backend on port 8080..."
-cd backend && go run cmd/server/main.go &
+pushd backend && go run cmd/server/main.go &
 BACKEND_PID=$!
-cd ..
+popd
 
 # Wait for backend to start
 sleep 3
