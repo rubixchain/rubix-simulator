@@ -96,12 +96,12 @@ export const SimulationForm = ({ onSimulationStart }: SimulationFormProps) => {
   };
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4">
-      <Card className="w-full max-w-md">
+    <div className="flex items-center justify-center p-4">
+      <Card className="w-full max-w-md card-glow">
         <CardHeader className="text-center">
           <div className="flex justify-between items-start mb-2">
             <div className="flex-1">
-              <CardTitle className="text-2xl font-bold bg-gradient-to-r from-primary to-primary/80 bg-clip-text text-transparent">
+              <CardTitle className="text-2xl font-bold text-card-title">
                 Rubix Network Simulator
               </CardTitle>
             </div>
@@ -172,7 +172,7 @@ export const SimulationForm = ({ onSimulationStart }: SimulationFormProps) => {
 
             <Button
               type="submit"
-              className="w-full"
+              className="w-full bg-primary text-primary-foreground hover:bg-secondary hover:text-primary border border-primary hover:border-primary"
               disabled={isLoading || backendStatus !== "connected"}
             >
               {isLoading ? (

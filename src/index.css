@@ -8,100 +8,69 @@ All colors MUST be HSL.
 
 @layer base {
   :root {
-    --background: 218 23% 5%;
-    --foreground: 218 27% 94%;
+    --background: 0 0% 12%;
+    --foreground: 0 0% 100%;
 
-    --card: 217 19% 8%;
-    --card-foreground: 218 27% 94%;
+    --card: 0 0% 12%;
+    --card-foreground: 0 0% 100%;
 
-    --popover: 217 19% 8%;
-    --popover-foreground: 218 27% 94%;
+    --popover: 0 0% 12%;
+    --popover-foreground: 0 0% 100%;
 
-    --primary: 200 98% 39%;
-    --primary-foreground: 218 23% 5%;
+    --primary: 48 100% 50%;
+    --primary-foreground: 0 0% 0%;
 
-    --secondary: 215 25% 27%;
-    --secondary-foreground: 218 27% 94%;
+    --secondary: 118 100% 10%;
+    --secondary-foreground: 0 0% 100%;
 
-    --muted: 215 14% 34%;
-    --muted-foreground: 217 10% 64%;
+    --muted: 0 0% 16%;
+    --muted-foreground: 0 0% 69%;
 
-    --accent: 204 94% 94%;
-    --accent-foreground: 218 23% 5%;
+    --accent: 48 100% 50%;
+    --accent-foreground: 0 0% 0%;
 
     --destructive: 0 84% 60%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive-foreground: 0 0% 100%;
 
-    --success: 142 76% 36%;
-    --success-foreground: 355 7% 97%;
-
-    --warning: 48 96% 53%;
-    --warning-foreground: 26 83% 14%;
-
-    --border: 215 14% 34%;
-    --input: 215 14% 34%;
-    --ring: 200 98% 39%;
-
-    --gradient-primary: linear-gradient(135deg, hsl(200 98% 39%), hsl(200 98% 50%));
-    --gradient-card: linear-gradient(145deg, hsl(217 19% 8%), hsl(215 25% 10%));
-    --shadow-primary: 0 8px 32px hsl(200 98% 39% / 0.3);
-    --shadow-card: 0 4px 16px hsl(0 0% 0% / 0.4);
+    --border: 118 100% 10%;
+    --input: 0 0% 16%;
+    --ring: 118 100% 10%;
+    --card-text-color: 145 50% 20%;
 
     --radius: 0.5rem;
-
-    --sidebar-background: 0 0% 98%;
-
-    --sidebar-foreground: 240 5.3% 26.1%;
-
-    --sidebar-primary: 240 5.9% 10%;
-
-    --sidebar-primary-foreground: 0 0% 98%;
-
-    --sidebar-accent: 240 4.8% 95.9%;
-
-    --sidebar-accent-foreground: 240 5.9% 10%;
-
-    --sidebar-border: 220 13% 91%;
-
-    --sidebar-ring: 217.2 91.2% 59.8%;
   }
 
   .dark {
-    --background: 240 10% 3.9%;
-    --foreground: 0 0% 98%;
+    --background: 0 0% 12%;
+    --foreground: 0 0% 100%;
 
-    --card: 240 10% 3.9%;
-    --card-foreground: 0 0% 98%;
+    --card: 0 0% 12%;
+    --card-foreground: 0 0% 100%;
 
-    --popover: 240 10% 3.9%;
-    --popover-foreground: 0 0% 98%;
+    --popover: 0 0% 12%;
+    --popover-foreground: 0 0% 100%;
 
-    --primary: 200 98% 50%;
-    --primary-foreground: 240 10% 3.9%;
+    --primary: 48 100% 50%;
+    --primary-foreground: 0 0% 0%;
 
-    --secondary: 240 4% 16%;
-    --secondary-foreground: 0 0% 98%;
+    --secondary: 118 100% 10%;
+    --secondary-foreground: 0 0% 100%;
 
-    --muted: 240 4% 16%;
-    --muted-foreground: 240 5% 64.9%;
+    --muted: 0 0% 16%;
+    --muted-foreground: 0 0% 69%;
 
-    --accent: 240 4% 16%;
-    --accent-foreground: 0 0% 98%;
+    --accent: 48 100% 50%;
+    --accent-foreground: 0 0% 0%;
 
     --destructive: 0 84% 60%;
-    --destructive-foreground: 0 0% 98%;
+    --destructive-foreground: 0 0% 100%;
 
-    --border: 240 4% 16%;
-    --input: 240 4% 16%;
-    --ring: 200 98% 50%;
-    --sidebar-background: 240 5.9% 10%;
-    --sidebar-foreground: 240 4.8% 95.9%;
-    --sidebar-primary: 224.3 76.3% 48%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 3.7% 15.9%;
-    --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 240 3.7% 15.9%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    --border: 118 100% 10%;
+    --input: 0 0% 16%;
+    --ring: 118 100% 10%;
+    --card-text-color: 145 50% 20%;
+
+    --radius: 0.5rem;
   }
 }
 
@@ -112,5 +81,16 @@ All colors MUST be HSL.
 
   body {
     @apply bg-background text-foreground;
+    background-image: linear-gradient(hsla(118, 100%, 10%, 0.05) 1px, transparent 1px),
+      linear-gradient(to right, hsla(118, 100%, 10%, 0.05) 1px, transparent 1px);
+    background-size: 20px 20px;
   }
+}
+
+.card-glow {
+  box-shadow: 0 0 20px 0 hsla(118, 100%, 10%, 0.5);
+}
+
+.text-card-title {
+  color: hsl(var(--card-text-color));
 }
