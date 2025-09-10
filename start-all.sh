@@ -1,5 +1,7 @@
 #!/bin/bash
 
+pwd
+
 echo "==================================="
 echo "Starting Rubix Network Simulator"
 echo "==================================="
@@ -28,6 +30,8 @@ sleep 3
 
 # Start Frontend
 echo "Starting React Frontend on port 5173..."
+CURRENT_DIR=$(pwd)
+echo "Current directory is: $CURRENT_DIR"
 npm run dev &
 FRONTEND_PID=$!
 
