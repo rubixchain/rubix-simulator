@@ -661,18 +661,36 @@ func (m *Manager) adjustNodeCount(requestedTransactionNodes int) error {
 		}
 	}
 
+	// If counts match, check if nodes are already running
+	if requestedTransactionNodes == existingTransactionNodes {
+		log.Println("Node count matches, checking status of existing nodes...")
+		allRunning := true
+		for nodeID, nodeInfo := range metadata {
+			client := NewClient(nodeInfo.ServerPort)
+			if err := client.Ping(); err != nil {
+				log.Printf("Node %s is not responding: %v", nodeID, err)
+				allRunning = false
+				break
+			}
+		}
+
+		if allRunning {
+			log.Println("All nodes are already running. Skipping restart.")
+			// Important: Load the running nodes into the manager's state
+			m.nodes = metadata
+			return nil
+		}
+
+		log.Println("One or more nodes not running, proceeding with restart...")
+		return m.restartExistingNodes()
+	}
+
 	requestedTotal := m.config.QuorumNodeCount + requestedTransactionNodes
 	existingTotal := len(metadata)
 
 	log.Printf("Node count adjustment: Existing: %d nodes (%d quorum + %d transaction), Requested: %d nodes (%d quorum + %d transaction)",
 		existingTotal, m.config.QuorumNodeCount, existingTransactionNodes,
 		requestedTotal, m.config.QuorumNodeCount, requestedTransactionNodes)
-
-	// If counts match, just restart existing nodes
-	if requestedTransactionNodes == existingTransactionNodes {
-		log.Println("Node count matches, restarting existing nodes...")
-		return m.restartExistingNodes()
-	}
 
 	// If more nodes requested, start existing and add new ones
 	if requestedTransactionNodes > existingTransactionNodes {

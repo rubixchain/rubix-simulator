@@ -45,9 +45,9 @@ type SimulationReport struct {
 	TotalTransactions    int            `json:"totalTransactions"`
 	SuccessCount         int            `json:"successCount"`
 	FailureCount         int            `json:"failureCount"`
-	AverageLatency       float64        `json:"averageLatency"`
-	MinLatency           time.Duration  `json:"minLatency"`
-	MaxLatency           time.Duration  `json:"maxLatency"`
+	AverageTransactionTime       float64        `json:"averageTransactionTime"`
+	MinTransactionTime           time.Duration  `json:"minTransactionTime"`
+	MaxTransactionTime           time.Duration  `json:"maxTransactionTime"`
 	TotalTokensTransferred float64       `json:"totalTokensTransferred"`
 	TotalTime            time.Duration  `json:"totalTime"`
 	IsFinished           bool           `json:"isFinished"`
@@ -61,7 +61,7 @@ type NodeStats struct {
 	TransactionsHandled  int          `json:"transactionsHandled"`
 	SuccessfulTransactions int        `json:"successfulTransactions"`
 	FailedTransactions   int          `json:"failedTransactions"`
-	AverageLatency       time.Duration `json:"averageLatency"`
+	AverageTransactionTime       time.Duration `json:"averageTransactionTime"`
 	TotalTokensTransferred float64    `json:"totalTokensTransferred"`
 }
 

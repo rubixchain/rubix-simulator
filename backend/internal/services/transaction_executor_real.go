@@ -246,10 +246,7 @@ func (te *TransactionExecutor) ExecuteTransactionsWithProgress(nodes []*models.N
 }
 
 func (te *TransactionExecutor) executeRealTransaction(senderNode *models.Node, senderDID string, receiverNode *models.Node, receiverDID string, index int) models.Transaction {
-	// Generate random float between 1.0 and 10.0 for RBT transfer
-	// Round to 3 decimal places as required by Rubix API
-	tokenAmount := rand.Float64() * 9.0 + 1.0
-	tokenAmount = float64(int(tokenAmount*1000)) / 1000.0  // Round to 3 decimal places
+	tokenAmount := float64(rand.Intn(10) + 1)
 	
 	transaction := models.Transaction{
 		ID:          uuid.New().String(),

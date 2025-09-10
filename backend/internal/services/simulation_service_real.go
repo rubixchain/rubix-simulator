@@ -16,6 +16,8 @@ type SimulationService struct {
 	reportGenerator     *ReportGenerator
 	simulations         map[string]*models.SimulationReport
 	mu                  sync.RWMutex
+	isSimulationRunning bool
+	simMu               sync.Mutex // Mutex for isSimulationRunning flag
 }
 
 func NewSimulationService(nm *NodeManager, te *TransactionExecutor, rg *ReportGenerator) *SimulationService {
@@ -24,6 +26,7 @@ func NewSimulationService(nm *NodeManager, te *TransactionExecutor, rg *ReportGe
 		transactionExecutor: te,
 		reportGenerator:     rg,
 		simulations:         make(map[string]*models.SimulationReport),
+		isSimulationRunning: false,
 	}
 }
 
@@ -32,6 +35,14 @@ func (ss *SimulationService) GetNodeManager() *NodeManager {
 }
 
 func (ss *SimulationService) StartSimulation(nodeCount, transactionCount int) (string, error) {
+	ss.simMu.Lock()
+	if ss.isSimulationRunning {
+		ss.simMu.Unlock()
+		return "", fmt.Errorf("All servers are busy, please try again after some time.")
+	}
+	ss.isSimulationRunning = true
+	ss.simMu.Unlock()
+
 	// nodeCount represents additional non-quorum nodes beyond the 7 quorum nodes
 	// Minimum 2 non-quorum nodes required for transactions
 	if nodeCount < 2 || nodeCount > 20 {
@@ -68,6 +79,12 @@ func (ss *SimulationService) StartSimulation(nodeCount, transactionCount int) (s
 }
 
 func (ss *SimulationService) runSimulation(simulationID string, nodeCount, transactionCount int) {
+	defer func() {
+		ss.simMu.Lock()
+		ss.isSimulationRunning = false
+		ss.simMu.Unlock()
+	}()
+
 	// Safely truncate ID for logging
 	simID := simulationID
 	if len(simID) > 8 {
@@ -82,20 +99,30 @@ func (ss *SimulationService) runSimulation(simulationID string, nodeCount, trans
 		report.Config.StartedAt = startTime
 	})
 
-	var nodes []*models.Node
-	var err error
-	
-	// Start real Rubix nodes (7 quorum + additional non-quorum)
-	// NO FALLBACK TO SIMULATION - if nodes don't start, simulation fails
-	nodes, err = ss.nodeManager.StartNodes(nodeCount)
-	if err != nil {
-		log.Printf("ERROR: Failed to start Rubix nodes: %v", err)
+	// Ensure nodes are running
+	if _, err := ss.nodeManager.StartNodes(nodeCount); err != nil {
+		log.Printf("ERROR: Failed to start nodes: %v", err)
 		ss.updateReport(simulationID, func(report *models.SimulationReport) {
 			report.IsFinished = true
-			report.Error = fmt.Sprintf("Failed to start Rubix nodes. Ensure rubixgoplatform is installed and running: %v", err)
+			report.Error = fmt.Sprintf("Failed to start nodes: %v", err)
 		})
 		return
 	}
+
+	// Get available nodes from the node manager
+	nodes, err := ss.nodeManager.GetAvailableNodes(nodeCount)
+    if err != nil {
+		log.Printf("ERROR: Failed to get available nodes: %v", err)
+		ss.updateReport(simulationID, func(report *models.SimulationReport) {
+			report.IsFinished = true
+			report.Error = fmt.Sprintf("Failed to get available nodes: %v", err)
+		})
+		return
+	}
+
+	// Mark nodes as busy
+	ss.nodeManager.MarkNodesAsBusy(nodes)
+	defer ss.nodeManager.MarkNodesAsAvailable(nodes)
 	
 	// Verify we have nodes
 	if len(nodes) == 0 {
@@ -165,7 +192,7 @@ func (ss *SimulationService) runSimulation(simulationID string, nodeCount, trans
 			
 			// Calculate average latency for completed transactions
 			if completed > 0 {
-				report.AverageLatency = float64(totalLatency.Milliseconds()) / float64(completed)
+				report.AverageTransactionTime = float64(totalLatency.Milliseconds()) / float64(completed)
 			}
 			
 			// Store transactions processed so far
@@ -225,8 +252,8 @@ func (ss *SimulationService) processTransactions(simulationID string, transactio
 	successCount := 0
 	failureCount := 0
 	totalLatency := time.Duration(0)
-	minLatency := time.Duration(1<<63 - 1)
-	maxLatency := time.Duration(0)
+	minTransactionTime := time.Duration(1<<63 - 1)
+	maxTransactionTime := time.Duration(0)
 	totalTokensTransferred := float64(0)
 	nodeStats := make(map[string]*models.NodeStats)
 
@@ -239,11 +266,11 @@ func (ss *SimulationService) processTransactions(simulationID string, transactio
 		}
 
 		totalLatency += tx.TimeTaken
-		if tx.TimeTaken < minLatency {
-			minLatency = tx.TimeTaken
+		if tx.TimeTaken < minTransactionTime {
+			minTransactionTime = tx.TimeTaken
 		}
-		if tx.TimeTaken > maxLatency {
-			maxLatency = tx.TimeTaken
+		if tx.TimeTaken > maxTransactionTime {
+			maxTransactionTime = tx.TimeTaken
 		}
 
 		// Track node stats
@@ -253,7 +280,7 @@ func (ss *SimulationService) processTransactions(simulationID string, transactio
 				TransactionsHandled:    0,
 				SuccessfulTransactions: 0,
 				FailedTransactions:     0,
-				AverageLatency:         0,
+				AverageTransactionTime:         0,
 				TotalTokensTransferred: float64(0),
 			}
 		}
@@ -267,7 +294,7 @@ func (ss *SimulationService) processTransactions(simulationID string, transactio
 			stats.FailedTransactions++
 		}
 		// We'll calculate average latency later
-		stats.AverageLatency += tx.TimeTaken
+		stats.AverageTransactionTime += tx.TimeTaken
 	}
 
 	// Calculate averages
@@ -280,7 +307,7 @@ func (ss *SimulationService) processTransactions(simulationID string, transactio
 	nodeBreakdown := make([]models.NodeStats, 0, len(nodeStats))
 	for _, stats := range nodeStats {
 		if stats.TransactionsHandled > 0 {
-			stats.AverageLatency = stats.AverageLatency / time.Duration(stats.TransactionsHandled)
+			stats.AverageTransactionTime = stats.AverageTransactionTime / time.Duration(stats.TransactionsHandled)
 		}
 		nodeBreakdown = append(nodeBreakdown, *stats)
 	}
@@ -289,9 +316,9 @@ func (ss *SimulationService) processTransactions(simulationID string, transactio
 	report.TransactionsCompleted = len(transactions)
 	report.SuccessCount = successCount
 	report.FailureCount = failureCount
-	report.AverageLatency = avgLatency
-	report.MinLatency = minLatency
-	report.MaxLatency = maxLatency
+	report.AverageTransactionTime = avgLatency
+	report.MinTransactionTime = minTransactionTime
+	report.MaxTransactionTime = maxTransactionTime
 	report.TotalTokensTransferred = totalTokensTransferred
 	report.NodeBreakdown = nodeBreakdown
 

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"time"
+	"fmt"
 
 	"github.com/gorilla/mux"
 	"github.com/rubix-simulator/backend/internal/models"
@@ -169,7 +170,7 @@ func (h *Handler) DownloadReport(w http.ResponseWriter, r *http.Request) {
 	
 	w.Header().Set("Content-Type", "application/pdf")
 	w.Header().Set("Content-Disposition", "attachment; filename="+filename)
-	w.Header().Set("Content-Length", string(stat.Size()))
+	w.Header().Set("Content-Length", fmt.Sprint(stat.Size()))
 	
 	io.Copy(w, file)
 }

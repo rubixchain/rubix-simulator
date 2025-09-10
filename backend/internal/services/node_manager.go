@@ -14,6 +14,7 @@ import (
 type NodeManager struct {
 	config       *config.Config
 	nodes        map[string]*models.Node
+	busyNodes    map[string]bool // New field
 	mu           sync.RWMutex
 	basePort     int
 	usePython    bool
@@ -25,6 +26,7 @@ func NewNodeManager(cfg *config.Config) *NodeManager {
 	return &NodeManager{
 		config:       cfg,
 		nodes:        make(map[string]*models.Node),
+		busyNodes:    make(map[string]bool), // New field
 		basePort:     20000,
 		usePython:    false, // Use Go implementation by default
 		rubixManager: rubix.NewManager(),
@@ -203,4 +205,39 @@ func (nm *NodeManager) GetNode(id string) (*models.Node, error) {
 
 func (nm *NodeManager) checkNodeHealth(node *models.Node) error {
 	return nil
+}
+
+func (nm *NodeManager) MarkNodesAsBusy(nodes []*models.Node) {
+	nm.mu.Lock()
+	defer nm.mu.Unlock()
+	for _, node := range nodes {
+		nm.busyNodes[node.ID] = true
+	}
+}
+
+func (nm *NodeManager) MarkNodesAsAvailable(nodes []*models.Node) {
+	nm.mu.Lock()
+	defer nm.mu.Unlock()
+	for _, node := range nodes {
+		delete(nm.busyNodes, node.ID)
+	}
+}
+
+func (nm *NodeManager) GetAvailableNodes(count int) ([]*models.Node, error) {
+	nm.mu.RLock()
+	defer nm.mu.RUnlock()
+
+	var availableNodes []*models.Node
+	for _, node := range nm.nodes {
+		// Return only available, non-quorum nodes for transactions
+		if !nm.busyNodes[node.ID] && !node.IsQuorum {
+			availableNodes = append(availableNodes, node)
+		}
+	}
+
+	if len(availableNodes) < count {
+		return nil, fmt.Errorf("not enough available transaction nodes to run the simulation: have %d, need %d", len(availableNodes), count)
+	}
+
+	return availableNodes[:count], nil
 }

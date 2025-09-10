@@ -23,7 +23,7 @@ func NewClient(port int) *Client {
 	return &Client{
 		baseURL: fmt.Sprintf("http://localhost:%d", port),
 		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: 1 * time.Second,
 		},
 	}
 }
@@ -162,7 +162,7 @@ func (c *Client) CreateDID(privKeyPassword string) (string, string, error) {
 // RegisterDID registers a DID with signature handling
 func (c *Client) RegisterDID(did string, password string) error {
 	log.Printf("[RegisterDID] Starting DID registration for: %s", did)
-	
+
 	payload := map[string]string{
 		"did": did,
 	}
@@ -196,14 +196,14 @@ func (c *Client) RegisterDID(did string, password string) error {
 	// If password is needed, send signature response
 	if sigResp.Status && sigResp.Message == "Password needed" {
 		log.Printf("[RegisterDID] Password required, sending signature response...")
-		
+
 		result, err := c.SendSignatureResponse(sigResp.Result.ID, sigResp.Result.Mode, password)
 		if err != nil {
 			log.Printf("[RegisterDID] ERROR: Failed to send signature response: %v", err)
 			// For RegisterDID, we don't need the transaction ID, just success/failure
 			return fmt.Errorf("failed to send signature response: %w", err)
 		}
-		
+
 		if result != nil && result.Success {
 			log.Printf("[RegisterDID] Signature response sent successfully, registration complete")
 		} else {
@@ -243,7 +243,7 @@ func (c *Client) SendSignatureResponse(id string, mode int, password string) (*T
 	log.Printf("[SendSignatureResponse] Starting signature response for request ID: %s", id)
 	log.Printf("[SendSignatureResponse]   Mode: %d (0=Basic, 1=Standard, 2=Wallet, 3=Child, 4=Lite)", mode)
 	log.Printf("[SendSignatureResponse]   Target: %s", c.baseURL)
-	
+
 	payload := map[string]interface{}{
 		"id":       id,
 		"mode":     mode,
@@ -254,7 +254,7 @@ func (c *Client) SendSignatureResponse(id string, mode int, password string) (*T
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal signature response: %w", err)
 	}
-	
+
 	log.Printf("[SendSignatureResponse] Payload: %s", string(data))
 
 	// Use a 15-minute timeout for signature operations as they may involve consensus
@@ -264,10 +264,10 @@ func (c *Client) SendSignatureResponse(id string, mode int, password string) (*T
 
 	log.Printf("[SendSignatureResponse] Sending POST request to %s/api/signature-response (timeout: 15 minutes)...", c.baseURL)
 	startTime := time.Now()
-	
+
 	resp, err := signatureClient.Post(c.baseURL+"/api/signature-response", "application/json", bytes.NewBuffer(data))
 	elapsed := time.Since(startTime)
-	
+
 	if err != nil {
 		log.Printf("[SendSignatureResponse] ERROR: Request failed after %v: %v", elapsed, err)
 		return nil, fmt.Errorf("failed to send signature response: %w", err)
@@ -324,7 +324,7 @@ func (c *Client) SendSignatureResponse(id string, mode int, password string) (*T
 // GenerateTestTokens generates test RBT tokens with signature handling
 func (c *Client) GenerateTestTokens(did string, numberOfTokens int, password string) error {
 	log.Printf("[GenerateTestTokens] Starting token generation for DID: %s, numberOfTokens: %d", did, numberOfTokens)
-	
+
 	payload := map[string]interface{}{
 		"number_of_tokens": numberOfTokens,
 		"did":              did,
@@ -335,7 +335,7 @@ func (c *Client) GenerateTestTokens(did string, numberOfTokens int, password str
 		log.Printf("[GenerateTestTokens] ERROR: Failed to marshal request: %v", err)
 		return fmt.Errorf("failed to marshal request: %w", err)
 	}
-	
+
 	log.Printf("[GenerateTestTokens] Sending request to %s with payload: %s", c.baseURL+"/api/generate-test-token", string(data))
 
 	resp, err := c.httpClient.Post(c.baseURL+"/api/generate-test-token", "application/json", bytes.NewBuffer(data))
@@ -364,14 +364,14 @@ func (c *Client) GenerateTestTokens(did string, numberOfTokens int, password str
 	// If password is needed, send signature response
 	if sigResp.Status && sigResp.Message == "Password needed" {
 		log.Printf("[GenerateTestTokens] Password required, sending signature response...")
-		
+
 		result, err := c.SendSignatureResponse(sigResp.Result.ID, sigResp.Result.Mode, password)
 		if err != nil {
 			log.Printf("[GenerateTestTokens] ERROR: Failed to send signature response: %v", err)
 			// For token generation, we don't need the transaction ID
 			return fmt.Errorf("failed to send signature response: %w", err)
 		}
-		
+
 		if result != nil && result.Success {
 			log.Printf("[GenerateTestTokens] Token generation completed successfully")
 		} else {
@@ -381,10 +381,10 @@ func (c *Client) GenerateTestTokens(did string, numberOfTokens int, password str
 
 	// Wait and check balance periodically
 	log.Printf("[GenerateTestTokens] Waiting for async token generation...")
-	
-	for i := 0; i < 10; i++ {  // Check for up to 50 seconds (10 * 5 seconds)
+
+	for i := 0; i < 10; i++ { // Check for up to 50 seconds (10 * 5 seconds)
 		time.Sleep(5 * time.Second)
-		
+
 		balance, err := c.GetAccountBalance(did)
 		if err != nil {
 			log.Printf("[GenerateTestTokens] Check %d: Failed to get balance: %v", i+1, err)
@@ -396,7 +396,7 @@ func (c *Client) GenerateTestTokens(did string, numberOfTokens int, password str
 			}
 		}
 	}
-	
+
 	log.Printf("[GenerateTestTokens] WARNING: Token generation may have failed - balance still 0 after 50 seconds")
 	return nil
 }
@@ -404,12 +404,12 @@ func (c *Client) GenerateTestTokens(did string, numberOfTokens int, password str
 // AddQuorum adds quorum list to the node
 func (c *Client) AddQuorum(quorumList []QuorumData) error {
 	log.Printf("[AddQuorum] Adding %d quorum members to node at %s", len(quorumList), c.baseURL)
-	
+
 	data, err := json.Marshal(quorumList)
 	if err != nil {
 		return fmt.Errorf("failed to marshal quorum list: %w", err)
 	}
-	
+
 	log.Printf("[AddQuorum] Sending quorum list: %s", string(data))
 
 	resp, err := c.httpClient.Post(c.baseURL+"/api/addquorum", "application/json", bytes.NewBuffer(data))
@@ -420,7 +420,7 @@ func (c *Client) AddQuorum(quorumList []QuorumData) error {
 
 	body, _ := io.ReadAll(resp.Body)
 	log.Printf("[AddQuorum] Response: %s", string(body))
-	
+
 	var result BasicResponse
 	if err := json.Unmarshal(body, &result); err != nil {
 		return fmt.Errorf("failed to decode response: %w", err)
@@ -465,7 +465,7 @@ func (c *Client) SetupQuorum(did, password, privKeyPassword string) error {
 	payload := map[string]string{
 		"did":           did,
 		"password":      password,
-		"priv_password": privKeyPassword,  // Changed to match QuorumSetup struct
+		"priv_password": privKeyPassword, // Changed to match QuorumSetup struct
 	}
 
 	data, err := json.Marshal(payload)
@@ -589,9 +589,9 @@ type RBTTransferResponse struct {
 func (c *Client) InitiateRBTTransfer(sender, receiver string, amount float64, comment string, password string) (string, error) {
 	// Round amount to 3 decimal places as required by Rubix API
 	amount = float64(int(amount*1000)) / 1000.0
-	
+
 	log.Printf("[InitiateRBTTransfer] Starting transfer from %s to %s, amount: %.3f", sender, receiver, amount)
-	
+
 	request := RBTTransferRequest{
 		Sender:     sender,
 		Receiver:   receiver,
@@ -625,36 +625,36 @@ func (c *Client) InitiateRBTTransfer(sender, receiver string, amount float64, co
 	if err := json.Unmarshal(body, &sigResp); err == nil && sigResp.Status && sigResp.Message == "Password needed" {
 		log.Printf("[InitiateRBTTransfer] Password required for DID mode %d, request ID: %s", sigResp.Result.Mode, sigResp.Result.ID)
 		log.Printf("[InitiateRBTTransfer] Sending signature response with password...")
-		
+
 		startTime := time.Now()
 		transferResult, err := c.SendSignatureResponse(sigResp.Result.ID, sigResp.Result.Mode, password)
 		if err != nil {
 			log.Printf("[InitiateRBTTransfer] ERROR: Failed to complete transfer after %v: %v", time.Since(startTime), err)
-			
+
 			// Check if we have a transfer result even with error (transaction might have failed on chain)
 			if transferResult != nil && !transferResult.Success {
 				log.Printf("[InitiateRBTTransfer] Transfer failed on blockchain: %s", transferResult.Message)
 				return "", fmt.Errorf("transfer failed: %s", transferResult.Message)
 			}
-			
+
 			return "", fmt.Errorf("failed to complete transfer: %w", err)
 		}
-		
+
 		log.Printf("[InitiateRBTTransfer] Transfer completed in %v", time.Since(startTime))
-		
+
 		// Check if transaction was actually successful
 		if transferResult != nil {
 			if !transferResult.Success {
 				log.Printf("[InitiateRBTTransfer] Transfer failed: %s", transferResult.Message)
 				return "", fmt.Errorf("transfer failed: %s", transferResult.Message)
 			}
-			
+
 			if transferResult.TransactionID != "" {
 				log.Printf("[InitiateRBTTransfer] Transfer successful, transaction ID: %s", transferResult.TransactionID)
 				return transferResult.TransactionID, nil
 			}
 		}
-		
+
 		// Fallback to request ID if no transaction ID found
 		log.Printf("[InitiateRBTTransfer] Warning: No transaction ID in result, using request ID: %s", sigResp.Result.ID)
 		return sigResp.Result.ID, nil
@@ -735,7 +735,7 @@ func (c *Client) WaitForNode(timeout time.Duration) error {
 	start := time.Now()
 	attempt := 0
 	maxBackoff := 10 * time.Second
-	
+
 	for {
 		if time.Since(start) > timeout {
 			return fmt.Errorf("timeout waiting for node to be ready after %v", timeout)
@@ -745,11 +745,11 @@ func (c *Client) WaitForNode(timeout time.Duration) error {
 		if err == nil && status {
 			return nil
 		}
-		
+
 		// Log progress every 5 attempts
 		attempt++
 		if attempt%5 == 0 {
-			log.Printf("Still waiting for node at %s (attempt %d, elapsed: %v)", 
+			log.Printf("Still waiting for node at %s (attempt %d, elapsed: %v)",
 				c.baseURL, attempt, time.Since(start))
 		}
 
@@ -758,7 +758,7 @@ func (c *Client) WaitForNode(timeout time.Duration) error {
 		if backoff > maxBackoff {
 			backoff = maxBackoff
 		}
-		
+
 		time.Sleep(backoff)
 	}
 }
@@ -766,20 +766,20 @@ func (c *Client) WaitForNode(timeout time.Duration) error {
 // WaitForNodeWithRetry waits for node with configurable retry strategy
 func (c *Client) WaitForNodeWithRetry(timeout time.Duration, maxRetries int) error {
 	var lastErr error
-	
+
 	for retry := 0; retry < maxRetries; retry++ {
 		if retry > 0 {
 			log.Printf("Retry %d/%d waiting for node at %s", retry+1, maxRetries, c.baseURL)
 			time.Sleep(time.Duration(retry*2) * time.Second)
 		}
-		
+
 		if err := c.WaitForNode(timeout); err != nil {
 			lastErr = err
 			continue
 		}
-		
+
 		return nil
 	}
-	
+
 	return fmt.Errorf("failed after %d retries: %w", maxRetries, lastErr)
 }

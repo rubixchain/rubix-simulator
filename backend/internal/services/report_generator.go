@@ -85,7 +85,7 @@ func (rg *ReportGenerator) addSummary(pdf *fpdf.Fpdf, report *models.SimulationR
 	pdf.SetFont("Arial", "", 10)
 
 	// Convert average latency from milliseconds to Duration
-	avgLatencyDuration := time.Duration(report.AverageLatency) * time.Millisecond
+	avgTransactionTimeDuration := time.Duration(report.AverageTransactionTime) * time.Millisecond
 	
 	summaryData := [][]string{
 		{"Parameter", "Value"},
@@ -95,9 +95,9 @@ func (rg *ReportGenerator) addSummary(pdf *fpdf.Fpdf, report *models.SimulationR
 			float64(report.SuccessCount)/float64(report.TotalTransactions)*100)},
 		{"Failed", fmt.Sprintf("%d (%.1f%%)", report.FailureCount,
 			float64(report.FailureCount)/float64(report.TotalTransactions)*100)},
-		{"Average Latency", formatDuration(avgLatencyDuration)},
-		{"Min Latency", formatDuration(report.MinLatency)},
-		{"Max Latency", formatDuration(report.MaxLatency)},
+		{"Average Transaction Time", formatDuration(avgTransactionTimeDuration)},
+		{"Min Transaction Time", formatDuration(report.MinTransactionTime)},
+		{"Max Transaction Time", formatDuration(report.MaxTransactionTime)},
 		{"Total Tokens Transferred", fmt.Sprintf("%.2f", report.TotalTokensTransferred)},
 		{"Total Execution Time", formatDuration(report.TotalTime)},
 	}
@@ -198,7 +198,7 @@ func (rg *ReportGenerator) addNodeBreakdown(pdf *fpdf.Fpdf, report *models.Simul
 	pdf.SetFont("Arial", "", 10)
 
 	nodeData := [][]string{
-		{"Node ID", "Transactions", "Success", "Failed", "Avg Latency", "Tokens"},
+		{"Node ID", "Transactions", "Success", "Failed", "Avg Transaction Time", "Tokens"},
 	}
 
 	for _, node := range report.NodeBreakdown {
@@ -213,7 +213,7 @@ func (rg *ReportGenerator) addNodeBreakdown(pdf *fpdf.Fpdf, report *models.Simul
 			fmt.Sprintf("%d", node.TransactionsHandled),
 			fmt.Sprintf("%d", node.SuccessfulTransactions),
 			fmt.Sprintf("%d", node.FailedTransactions),
-			formatDuration(node.AverageLatency),
+			formatDuration(node.AverageTransactionTime),
 			fmt.Sprintf("%.2f", node.TotalTokensTransferred),
 		})
 	}
@@ -280,288 +280,128 @@ func (rg *ReportGenerator) addTransactionDetails(pdf *fpdf.Fpdf, report *models.
 func (rg *ReportGenerator) addCharts(pdf *fpdf.Fpdf, report *models.SimulationReport) {
 	pdf.AddPage()
 	pdf.SetFont("Arial", "B", 14)
-	pdf.CellFormat(0, 10, "Performance Charts", "", 1, "L", false, 0, "")
+	pdf.CellFormat(0, 10, "Performance Chart", "", 1, "L", false, 0, "")
 
-	// Add the new token vs time chart as the primary chart
-	rg.drawTokenVsTimeChart(pdf, report, 30, 40)
-	
-	// Keep existing charts but make them smaller
-	rg.drawSuccessRatePieChart(pdf, report, 30, 140)
-	rg.drawLatencyHistogram(pdf, report, 110, 140)
-	rg.drawNodeLoadChart(pdf, report, 30, 210)
+	rg.drawAvgTimeVsTokenRangeChart(pdf, report, 30, 40)
 }
 
-// drawTokenVsTimeChart draws a scatter plot showing relationship between token amount and transaction time
-func (rg *ReportGenerator) drawTokenVsTimeChart(pdf *fpdf.Fpdf, report *models.SimulationReport, x, y float64) {
+func (rg *ReportGenerator) drawAvgTimeVsTokenRangeChart(pdf *fpdf.Fpdf, report *models.SimulationReport, x, y float64) {
 	if len(report.Transactions) == 0 {
 		return
 	}
 
 	pdf.SetFont("Arial", "B", 12)
 	pdf.SetXY(x, y-10)
-	pdf.CellFormat(150, 10, "Token Amount vs Transaction Time", "", 0, "C", false, 0, "")
-	
+	pdf.CellFormat(150, 10, "Average Time vs. Token Range", "", 0, "C", false, 0, "")
+
+	// Define token ranges
+	ranges := []struct {
+		min, max float64
+		label    string
+	}{
+		{1, 1, "1"},
+		{2, 2, "2"},
+		{3, 3, "3"},
+		{4, 4, "4"},
+		{5, 5, "5"},
+		{6, 6, "6"},
+		{7, 7, "7"},
+		{8, 8, "8"},
+		{9, 9, "9"},
+		{10, 10, "10"},
+	}
+
+	// Calculate average time for each token range
+	rangeAvgTimes := make(map[string]float64)
+	rangeCounts := make(map[string]int)
+	for _, tx := range report.Transactions {
+		if tx.Status == "success" {
+			for _, r := range ranges {
+				if tx.TokenAmount >= r.min && tx.TokenAmount <= r.max {
+					rangeAvgTimes[r.label] += float64(tx.TimeTaken.Milliseconds())
+					rangeCounts[r.label]++
+					break
+				}
+			}
+		}
+	}
+
 	// Chart dimensions
 	chartWidth := float64(150)
 	chartHeight := float64(80)
 	chartX := x
 	chartY := y
-	
+
 	// Draw axes
 	pdf.SetDrawColor(0, 0, 0)
 	pdf.Line(chartX, chartY+chartHeight, chartX+chartWidth, chartY+chartHeight) // X-axis
-	pdf.Line(chartX, chartY, chartX, chartY+chartHeight) // Y-axis
-	
+	pdf.Line(chartX, chartY, chartX, chartY+chartHeight)                         // Y-axis
+
 	// Find min/max values for scaling
-	minTokens, maxTokens := 10.0, 0.0
-	minTime, maxTime := float64(1000000), float64(0)
-	
-	for _, tx := range report.Transactions {
-		if tx.Status == "success" { // Only plot successful transactions
-			if tx.TokenAmount < minTokens {
-				minTokens = tx.TokenAmount
-			}
-			if tx.TokenAmount > maxTokens {
-				maxTokens = tx.TokenAmount
-			}
-			
-			timeMs := float64(tx.TimeTaken.Milliseconds())
-			if timeMs < minTime && timeMs > 0 {
-				minTime = timeMs
-			}
-			if timeMs > maxTime {
-				maxTime = timeMs
+	maxAvgTime := 0.0
+	for label, totalTime := range rangeAvgTimes {
+		count := rangeCounts[label]
+		if count > 0 {
+			avgTime := (totalTime / float64(count)) / 1000.0 // Convert to seconds
+			if avgTime > maxAvgTime {
+				maxAvgTime = avgTime
 			}
 		}
 	}
-	
-	// Add some padding to the ranges
-	tokenRange := maxTokens - minTokens
-	if tokenRange == 0 {
-		tokenRange = 1
+
+	if maxAvgTime == 0 {
+		maxAvgTime = 1 // Avoid division by zero
 	}
-	timeRange := maxTime - minTime
-	if timeRange == 0 {
-		timeRange = 1000
-	}
-	
+
 	// Draw grid lines and labels
 	pdf.SetDrawColor(200, 200, 200)
 	pdf.SetFont("Arial", "", 8)
-	
-	// X-axis labels (token amounts)
-	for i := 0; i <= 5; i++ {
-		xPos := chartX + (float64(i) * chartWidth / 5)
-		pdf.Line(xPos, chartY, xPos, chartY+chartHeight)
-		
-		tokenValue := minTokens + (float64(i) * tokenRange / 5)
-		pdf.SetXY(xPos-10, chartY+chartHeight+2)
-		pdf.CellFormat(20, 5, fmt.Sprintf("%.1f", tokenValue), "", 0, "C", false, 0, "")
-	}
-	
-	// Y-axis labels (time in human-readable format)
+
+	// Y-axis labels (time in seconds)
 	for i := 0; i <= 4; i++ {
 		yPos := chartY + chartHeight - (float64(i) * chartHeight / 4)
 		pdf.Line(chartX, yPos, chartX+chartWidth, yPos)
-		
-		timeValue := minTime + (float64(i) * timeRange / 4)
-		timeDuration := time.Duration(timeValue) * time.Millisecond
-		pdf.SetXY(chartX-25, yPos-2)
-		pdf.CellFormat(20, 5, formatDuration(timeDuration), "", 0, "R", false, 0, "")
+
+		timeValue := (float64(i) * maxAvgTime / 4)
+		pdf.SetXY(chartX-15, yPos-2)
+		pdf.CellFormat(10, 5, fmt.Sprintf("%.2f", timeValue), "", 0, "R", false, 0, "")
 	}
-	
-	// Plot data points
-	for _, tx := range report.Transactions {
-		if tx.Status == "success" {
+
+	// X-axis labels (token ranges)
+	for i, r := range ranges {
+		xPos := chartX + (float64(i) * chartWidth / float64(len(ranges)-1))
+		pdf.Line(xPos, chartY, xPos, chartY+chartHeight)
+		pdf.SetXY(xPos-5, chartY+chartHeight+2)
+		pdf.CellFormat(10, 5, r.label, "", 0, "C", false, 0, "")
+	}
+
+	// Plot data points as a line chart
+	pdf.SetDrawColor(33, 150, 243) // Blue for the line
+	pdf.SetLineWidth(0.5)
+	var lastX, lastY float64 = -1, -1
+
+	for i, r := range ranges {
+		if count, ok := rangeCounts[r.label]; ok && count > 0 {
+			avgTime := (rangeAvgTimes[r.label] / float64(count)) / 1000.0 // Convert to seconds
+
 			// Calculate position
-			xPos := chartX + ((tx.TokenAmount - minTokens) / tokenRange * chartWidth)
-			timeMs := float64(tx.TimeTaken.Milliseconds())
-			yPos := chartY + chartHeight - ((timeMs - minTime) / timeRange * chartHeight)
-			
-			// Draw point (circle)
-			pdf.SetFillColor(33, 150, 243) // Blue for success
-			pdf.Circle(xPos, yPos, 1.5, "F")
+			xPos := chartX + (float64(i) * chartWidth / float64(len(ranges)-1))
+			yPos := chartY + chartHeight - ((avgTime / maxAvgTime) * chartHeight)
+
+			if lastX != -1 {
+				pdf.Line(lastX, lastY, xPos, yPos)
+			}
+			lastX, lastY = xPos, yPos
 		}
 	}
-	
+
 	// Add axis labels
 	pdf.SetFont("Arial", "", 9)
-	pdf.SetXY(chartX + chartWidth/2 - 20, chartY + chartHeight + 10)
-	pdf.CellFormat(40, 5, "Token Amount (RBT)", "", 0, "C", false, 0, "")
-	
-	// Y-axis label (rotated text would be ideal but fpdf has limitations)
-	pdf.SetXY(chartX - 30, chartY + chartHeight/2 - 5)
-	pdf.CellFormat(20, 5, "Time", "", 0, "C", false, 0, "")
-	
-	// Add insights below the chart
-	pdf.SetFont("Arial", "I", 8)
-	pdf.SetXY(x, y + chartHeight + 20)
-	
-	// Calculate correlation or trend
-	avgSmallTime := float64(0)
-	avgLargeTime := float64(0)
-	smallCount := 0
-	largeCount := 0
-	
-	midToken := (minTokens + maxTokens) / 2
-	
-	for _, tx := range report.Transactions {
-		if tx.Status == "success" {
-			timeMs := float64(tx.TimeTaken.Milliseconds())
-			if tx.TokenAmount < midToken {
-				avgSmallTime += timeMs
-				smallCount++
-			} else {
-				avgLargeTime += timeMs
-				largeCount++
-			}
-		}
-	}
-	
-	if smallCount > 0 {
-		avgSmallTime /= float64(smallCount)
-	}
-	if largeCount > 0 {
-		avgLargeTime /= float64(largeCount)
-	}
-	
-	avgSmallDuration := time.Duration(avgSmallTime) * time.Millisecond
-	avgLargeDuration := time.Duration(avgLargeTime) * time.Millisecond
-	
-	insight := fmt.Sprintf("Avg time for <%.1f RBT: %s | Avg time for >%.1f RBT: %s",
-		midToken, formatDuration(avgSmallDuration), midToken, formatDuration(avgLargeDuration))
-	pdf.CellFormat(150, 5, insight, "", 0, "C", false, 0, "")
-}
+	pdf.SetXY(chartX+chartWidth/2-20, chartY+chartHeight+10)
+	pdf.CellFormat(40, 5, "Token Range", "", 0, "C", false, 0, "")
 
-func (rg *ReportGenerator) drawSuccessRatePieChart(pdf *fpdf.Fpdf, report *models.SimulationReport, x, y float64) {
-	pdf.SetFont("Arial", "B", 12)
-	pdf.SetXY(x, y-10)
-	pdf.CellFormat(60, 10, "Success Rate", "", 0, "C", false, 0, "")
-
-	centerX, centerY := x+30, y+30
-	radius := 25.0
-
-	successAngle := 360.0 * float64(report.SuccessCount) / float64(report.TotalTransactions)
-
-	pdf.SetFillColor(76, 175, 80)
-	pdf.Circle(centerX, centerY, radius, "F")
-
-	pdf.SetFillColor(244, 67, 54)
-	if report.FailureCount > 0 {
-		// Simple rectangle representation for failure portion
-		failureHeight := radius * 2 * float64(report.FailureCount) / float64(report.TotalTransactions)
-		pdf.Rect(centerX+radius+5, centerY-radius+successAngle/360*radius*2, 10, failureHeight, "F")
-	}
-
-	pdf.SetFont("Arial", "", 8)
-	pdf.SetXY(x, y+60)
-	pdf.SetTextColor(76, 175, 80)
-	pdf.CellFormat(30, 5, fmt.Sprintf("Success: %.1f%%", float64(report.SuccessCount)/float64(report.TotalTransactions)*100), "", 0, "L", false, 0, "")
-	pdf.SetTextColor(244, 67, 54)
-	pdf.CellFormat(30, 5, fmt.Sprintf("Failed: %.1f%%", float64(report.FailureCount)/float64(report.TotalTransactions)*100), "", 0, "L", false, 0, "")
-	pdf.SetTextColor(0, 0, 0)
-}
-
-func (rg *ReportGenerator) drawLatencyHistogram(pdf *fpdf.Fpdf, report *models.SimulationReport, x, y float64) {
-	pdf.SetFont("Arial", "B", 12)
-	pdf.SetXY(x, y-10)
-	pdf.CellFormat(60, 10, "Latency Distribution", "", 0, "C", false, 0, "")
-
-	bins := make(map[string]int)
-	for _, tx := range report.Transactions {
-		latency := tx.TimeTaken.Milliseconds()
-		var bin string
-		switch {
-		case latency < 100:
-			bin = "<100ms"
-		case latency < 200:
-			bin = "100-200ms"
-		case latency < 500:
-			bin = "200-500ms"
-		case latency < 1000:
-			bin = "500-1000ms"
-		default:
-			bin = ">1000ms"
-		}
-		bins[bin]++
-	}
-
-	maxCount := 0
-	for _, count := range bins {
-		if count > maxCount {
-			maxCount = count
-		}
-	}
-
-	barWidth := 10.0
-	maxHeight := 40.0
-	startX := x
-
-	binOrder := []string{"<100ms", "100-200ms", "200-500ms", "500-1000ms", ">1000ms"}
-
-	for i, bin := range binOrder {
-		count := bins[bin]
-		if maxCount > 0 {
-			height := (float64(count) / float64(maxCount)) * maxHeight
-			pdf.SetFillColor(33, 150, 243)
-			pdf.Rect(startX+float64(i)*barWidth, y+50-height, barWidth-1, height, "F")
-
-			pdf.SetFont("Arial", "", 6)
-			// Simple text label below bar
-			pdf.SetXY(startX+float64(i)*barWidth-5, y+55)
-			pdf.SetFont("Arial", "", 6)
-			pdf.CellFormat(barWidth+10, 3, bin, "", 0, "C", false, 0, "")
-		}
-	}
-}
-
-func (rg *ReportGenerator) drawNodeLoadChart(pdf *fpdf.Fpdf, report *models.SimulationReport, x, y float64) {
-	if len(report.NodeBreakdown) == 0 {
-		return
-	}
-
-	pdf.SetFont("Arial", "B", 12)
-	pdf.SetXY(x, y-10)
-	pdf.CellFormat(150, 10, "Node Load Distribution", "", 0, "C", false, 0, "")
-
-	barWidth := 140.0 / float64(len(report.NodeBreakdown))
-	maxTransactions := 0
-
-	for _, node := range report.NodeBreakdown {
-		if node.TransactionsHandled > maxTransactions {
-			maxTransactions = node.TransactionsHandled
-		}
-	}
-
-	if maxTransactions == 0 {
-		return
-	}
-
-	maxHeight := 30.0
-
-	for i, node := range report.NodeBreakdown {
-		height := (float64(node.TransactionsHandled) / float64(maxTransactions)) * maxHeight
-
-		successHeight := height * (float64(node.SuccessfulTransactions) / float64(node.TransactionsHandled))
-		failHeight := height - successHeight
-
-		nodeX := x + float64(i)*barWidth
-
-		pdf.SetFillColor(76, 175, 80)
-		pdf.Rect(nodeX, y+30-successHeight, barWidth-2, successHeight, "F")
-
-		pdf.SetFillColor(244, 67, 54)
-		pdf.Rect(nodeX, y+30-height, barWidth-2, failHeight, "F")
-
-		pdf.SetFont("Arial", "", 7)
-		pdf.SetXY(nodeX, y+32)
-		// Safely truncate NodeID for display
-		nodeLabel := node.NodeID
-		if len(nodeLabel) > 6 {
-			nodeLabel = nodeLabel[:6]
-		}
-		pdf.CellFormat(barWidth, 5, nodeLabel, "", 0, "C", false, 0, "")
-	}
+	pdf.SetXY(chartX-25, chartY+chartHeight/2-5)
+	pdf.CellFormat(20, 5, "Avg Time (s)", "", 0, "C", false, 0, "")
 }
 
 func (rg *ReportGenerator) addTable(pdf *fpdf.Fpdf, data [][]string, widths []float64) {

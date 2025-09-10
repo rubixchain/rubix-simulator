@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { AlertCircle, Play, CheckCircle, XCircle, Power } from "lucide-react";
+import { AlertCircle, Play, CheckCircle, XCircle } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 
@@ -15,7 +15,6 @@ export const SimulationForm = ({ onSimulationStart }: SimulationFormProps) => {
   const [additionalNodes, setAdditionalNodes] = useState<string>("");
   const [transactions, setTransactions] = useState<string>("");
   const [isLoading, setIsLoading] = useState(false);
-  const [isShuttingDown, setIsShuttingDown] = useState(false);
   const [error, setError] = useState<string>("");
   const [successMessage, setSuccessMessage] = useState<string>("");
   const [backendStatus, setBackendStatus] = useState<"checking" | "connected" | "disconnected">("checking");
@@ -34,44 +33,6 @@ export const SimulationForm = ({ onSimulationStart }: SimulationFormProps) => {
       setBackendStatus(response.ok ? "connected" : "disconnected");
     } catch {
       setBackendStatus("disconnected");
-    }
-  };
-
-  const handleShutdownNodes = async () => {
-    setError("");
-    setSuccessMessage("");
-    setIsShuttingDown(true);
-
-    try {
-      const response = await fetch("/nodes/stop", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => null);
-        throw new Error(errorData?.message || `Failed to shutdown nodes: ${response.status}`);
-      }
-
-      const data = await response.json();
-      setSuccessMessage("All nodes have been shut down successfully");
-      
-      // Clear the form inputs after successful shutdown
-      setAdditionalNodes("");
-      setTransactions("");
-      
-      // Clear success message after 5 seconds
-      setTimeout(() => setSuccessMessage(""), 5000);
-    } catch (err) {
-      if (err instanceof Error) {
-        setError(err.message);
-      } else {
-        setError("Failed to shutdown nodes");
-      }
-    } finally {
-      setIsShuttingDown(false);
     }
   };
 
@@ -212,7 +173,7 @@ export const SimulationForm = ({ onSimulationStart }: SimulationFormProps) => {
             <Button
               type="submit"
               className="w-full"
-              disabled={isLoading || isShuttingDown || backendStatus !== "connected"}
+              disabled={isLoading || backendStatus !== "connected"}
             >
               {isLoading ? (
                 <div className="flex items-center space-x-2">
@@ -226,31 +187,6 @@ export const SimulationForm = ({ onSimulationStart }: SimulationFormProps) => {
                 </div>
               )}
             </Button>
-
-            <Button
-              type="button"
-              variant="destructive"
-              className="w-full"
-              disabled={isShuttingDown || backendStatus !== "connected"}
-              onClick={handleShutdownNodes}
-            >
-              {isShuttingDown ? (
-                <div className="flex items-center space-x-2">
-                  <div className="animate-spin rounded-full h-4 w-4 border-2 border-current border-t-transparent" />
-                  <span>Shutting Down Nodes...</span>
-                </div>
-              ) : (
-                <div className="flex items-center space-x-2">
-                  <Power className="h-4 w-4" />
-                  <span>Shutdown All Nodes</span>
-                </div>
-              )}
-            </Button>
-
-            <div className="text-xs text-center text-muted-foreground mt-2">
-              Nodes remain running between simulations for faster execution.
-              Use shutdown when done testing.
-            </div>
           </form>
         </CardContent>
       </Card>

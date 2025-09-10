@@ -25,7 +25,7 @@ interface SimulationReport {
   totalTransactions: number;
   successCount: number;
   failureCount: number;
-  averageLatency: number;
+  averageTransactionTime: number;
   totalTime: number;
   isFinished: boolean;
   error?: string;
@@ -190,14 +190,7 @@ export const StatusView = ({ simulationId, onBack }: StatusViewProps) => {
                   {report.nodes ? report.nodes.length : 0}
                 </div>
                 <div className="text-sm text-muted-foreground">Total Nodes</div>
-                <div className="text-xs text-muted-foreground mt-1">
-                  {report.nodes && (
-                    <>
-                      {report.nodes.filter(n => n.isQuorum).length} quorum +{' '}
-                      {report.nodes.filter(n => !n.isQuorum).length} transaction
-                    </>
-                  )}
-                </div>
+                
               </div>
               <div className="text-center">
                 <div className="text-2xl font-bold">{report.totalTransactions}</div>
@@ -249,25 +242,15 @@ export const StatusView = ({ simulationId, onBack }: StatusViewProps) => {
               <div className="flex items-center space-x-3 p-3 bg-muted/50 rounded-lg">
                 <Clock className="h-5 w-5 text-primary" />
                 <div>
-                  <div className="font-medium">Avg Latency</div>
+                  <div className="font-medium">Average Transaction Time</div>
                   <div className="text-sm text-muted-foreground">
-                    {formatDuration(report.averageLatency)}
+                    {formatDuration(report.averageTransactionTime)}
                   </div>
                 </div>
               </div>
             </div>
 
-            {report.isFinished && (
-              <div className="flex items-center space-x-3 p-3 bg-primary/10 rounded-lg">
-                <CheckCircle className="h-5 w-5 text-primary" />
-                <div>
-                  <div className="font-medium">Total Time</div>
-                  <div className="text-sm text-muted-foreground">
-                    {formatDuration(report.totalTime)}
-                  </div>
-                </div>
-              </div>
-            )}
+            
           </CardContent>
         </Card>
 
