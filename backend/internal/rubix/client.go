@@ -23,7 +23,7 @@ func NewClient(port int) *Client {
 	return &Client{
 		baseURL: fmt.Sprintf("http://localhost:%d", port),
 		httpClient: &http.Client{
-			Timeout: 1 * time.Second,
+			Timeout: 5 * time.Minute,
 		},
 	}
 }
