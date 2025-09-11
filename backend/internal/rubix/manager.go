@@ -128,12 +128,12 @@ func (m *Manager) StartNodes(transactionNodeCount int, fresh bool) error {
 		log.Printf("  ✓ %s is ready", nodeID)
 
 		// Initialize the node
-		log.Printf("  Initializing %s core...", nodeID)
-		if err := client.Start(); err != nil {
-			log.Printf("  ⚠ Warning: failed to initialize %s: %v", nodeID, err)
-		} else {
-			log.Printf("  ✓ %s core initialized", nodeID)
-		}
+		// log.Printf("  Initializing %s core...", nodeID)
+		// if err := client.Start(); err != nil {
+		// 	log.Printf("  ⚠ Warning: failed to initialize %s: %v", nodeID, err)
+		// } else {
+		// 	log.Printf("  ✓ %s core initialized", nodeID)
+		// }
 
 		// Create DID
 		log.Printf("  Creating DID for %s with password...", nodeID)
