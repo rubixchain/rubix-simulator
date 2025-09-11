@@ -492,9 +492,10 @@ pause > nul`,
 		// Start the batch file in a new window
 		cmd = exec.Command("cmd", "/c", "start", "", batchPath)
 	} else {
-		// On Linux/Mac, run directly from node directory using local copy
-		cmd = exec.Command(filepath.Join(nodeDir, rubixBinName), args...)
-		cmd.Dir = nodeDir  // Run from node directory
+		// On Linux/Mac, run in a tmux session
+		sessionName := fmt.Sprintf("rubix-node-%s", nodeID)
+		nodeCommand := fmt.Sprintf("cd %s && %s %s", nodeDir, filepath.Join(nodeDir, rubixBinName), strings.Join(args, " "))
+		cmd = exec.Command("tmux", "new-session", "-d", "-s", sessionName, nodeCommand)
 	}
 
 	// Environment vars
@@ -561,12 +562,18 @@ func (m *Manager) StopAllNodes() error {
 		}
 
 		// Force kill the process if it exists
-		if nodeInfo.Process != nil {
-			if err := nodeInfo.Process.Process.Kill(); err != nil {
-				log.Printf("Warning: failed to kill process for %s: %v", nodeID, err)
-			} else {
-				log.Printf("Process killed for %s", nodeID)
-			}
+		if runtime.GOOS == "windows" {
+		    // On Windows, the process is the `start` command, which has already exited.
+		    // The actual node is in a separate window. The user is expected to close the windows manually.
+		    log.Printf("Skipping process kill for %s on Windows. Please close the node window manually.", nodeID)
+		} else {
+		    // On Linux/Mac, kill the tmux session
+		    sessionName := fmt.Sprintf("rubix-node-%s", nodeID)
+		    if err := exec.Command("tmux", "kill-session", "-t", sessionName).Run(); err != nil {
+		        log.Printf("Warning: failed to kill tmux session for %s: %v", nodeID, err)
+		    } else {
+		        log.Printf("TMUX session killed for %s", nodeID)
+		    }
 		}
 	}
 
