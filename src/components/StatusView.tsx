@@ -1,8 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { 
   ArrowLeft, 
   Download, 
@@ -10,7 +11,8 @@ import {
   XCircle, 
   Clock, 
   Activity,
-  Network
+  Network,
+  AlertCircle
 } from "lucide-react";
 
 interface SimulationReport {
@@ -36,6 +38,9 @@ interface StatusViewProps {
   onBack: () => void;
 }
 
+const MAX_RETRIES = 5;
+const INITIAL_POLL_INTERVAL = 2000;
+
 // Helper function to format duration in human-readable format
 const formatDuration = (milliseconds: number): string => {
   if (milliseconds < 1000) {
@@ -59,8 +64,17 @@ export const StatusView = ({ simulationId, onBack }: StatusViewProps) => {
   const [report, setReport] = useState<SimulationReport | null>(null);
   const [error, setError] = useState<string>("");
   const [isPolling, setIsPolling] = useState(true);
+  const [retryCount, setRetryCount] = useState(0);
+
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
+    const clearPollingTimeout = () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+
     const fetchReport = async () => {
       try {
         const response = await fetch(`/report/${simulationId}`);
@@ -68,6 +82,10 @@ export const StatusView = ({ simulationId, onBack }: StatusViewProps) => {
           throw new Error("Failed to fetch simulation report");
         }
         const data = await response.json();
+        
+        // Reset error and retry count on successful fetch
+        setError("");
+        setRetryCount(0);
         setReport(data);
         
         if (data.error) {
@@ -77,26 +95,39 @@ export const StatusView = ({ simulationId, onBack }: StatusViewProps) => {
           setIsPolling(false);
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : "An error occurred");
-        setIsPolling(false);
+        if (retryCount < MAX_RETRIES) {
+          setRetryCount(prev => prev + 1);
+          const delay = (2 ** retryCount) * 1000;
+          setError(`Connection issue. Retrying in ${delay / 1000}s... (Attempt ${retryCount + 1}/${MAX_RETRIES})`);
+        } else {
+          setError(err instanceof Error ? `${err.message}. Maximum retries reached.` : "An error occurred. Maximum retries reached.");
+          setIsPolling(false);
+        }
       }
     };
 
-    fetchReport();
-
-    let interval: NodeJS.Timeout;
-    if (isPolling) {
-      interval = setInterval(fetchReport, 2000);
-    }
-
-    return () => {
-      if (interval) clearInterval(interval);
+    const poll = () => {
+      if (!isPolling) return;
+      
+      fetchReport().finally(() => {
+        if (isPolling) {
+          let nextPollTime = INITIAL_POLL_INTERVAL;
+          if (retryCount > 0 && retryCount <= MAX_RETRIES) {
+            nextPollTime = (2 ** retryCount) * 1000;
+          }
+          timeoutRef.current = setTimeout(poll, nextPollTime);
+        }
+      });
     };
-  }, [simulationId, isPolling]);
+
+    clearPollingTimeout();
+    poll();
+
+    return clearPollingTimeout;
+  }, [simulationId, isPolling, retryCount]);
 
   const handleDownload = async () => {
     try {
-      // Download PDF report directly
       const response = await fetch(`/reports/${simulationId}/download`);
       if (!response.ok) {
         throw new Error("Failed to download report");
@@ -116,7 +147,7 @@ export const StatusView = ({ simulationId, onBack }: StatusViewProps) => {
     }
   };
 
-  if (error) {
+  if (error && !isPolling) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <Card className="w-full max-w-md">
@@ -175,7 +206,16 @@ export const StatusView = ({ simulationId, onBack }: StatusViewProps) => {
           </div>
         </div>
 
+        {/* Retry Warning */}
+        {error && isPolling && (
+          <Alert variant="destructive" className="bg-yellow-50 border-yellow-400 text-yellow-800 dark:bg-yellow-950/30 dark:border-yellow-600 dark:text-yellow-300">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
         {/* Simulation Info */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center space-x-2">
@@ -190,7 +230,6 @@ export const StatusView = ({ simulationId, onBack }: StatusViewProps) => {
                   {report.nodes ? report.nodes.length : 0}
                 </div>
                 <div className="text-sm text-muted-foreground">Total Nodes</div>
-                
               </div>
               <div className="text-center">
                 <div className="text-2xl font-bold">{report.totalTransactions}</div>
@@ -249,8 +288,30 @@ export const StatusView = ({ simulationId, onBack }: StatusViewProps) => {
                 </div>
               </div>
             </div>
+          </CardContent>
+        </Card>
+        </div>
 
-            
+        {/* Node Status */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Nodes Status</CardTitle>
+          </CardHeader>
+          <CardContent className="nodes-grid">
+            {report.nodes.map(node => (
+              <Card key={node.id} className="node-card">
+                <CardContent>
+                  <div className="flex items-center space-x-2">
+                    <div className={`h-3 w-3 rounded-full ${node.status === 'active' ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                    <span className="font-mono text-sm">{node.id}</span>
+                  </div>
+                  <div className="text-xs text-muted-foreground">Port: {node.port}</div>
+                  <Badge variant={node.isQuorum ? "secondary" : "outline"} className="mt-2">
+                    {node.isQuorum ? "Quorum" : "Transaction"}
+                  </Badge>
+                </CardContent>
+              </Card>
+            ))}
           </CardContent>
         </Card>
 
@@ -259,7 +320,7 @@ export const StatusView = ({ simulationId, onBack }: StatusViewProps) => {
             <CardContent className="flex items-center justify-center py-6">
               <div className="flex items-center space-x-2 text-muted-foreground">
                 <div className="animate-spin rounded-full h-4 w-4 border-2 border-primary border-t-transparent" />
-                <span>Simulation in progress... Updating every 2 seconds</span>
+                <span>Simulation in progress...</span>
               </div>
             </CardContent>
           </Card>

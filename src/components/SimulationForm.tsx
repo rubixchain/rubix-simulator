@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useState, useEffect, useRef } from "react";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,6 +11,8 @@ interface SimulationFormProps {
   onSimulationStart: (simulationId: string) => void;
 }
 
+const MAX_RETRIES = 5;
+
 export const SimulationForm = ({ onSimulationStart }: SimulationFormProps) => {
   const [additionalNodes, setAdditionalNodes] = useState<string>("");
   const [transactions, setTransactions] = useState<string>("");
@@ -18,23 +20,52 @@ export const SimulationForm = ({ onSimulationStart }: SimulationFormProps) => {
   const [error, setError] = useState<string>("");
   const [successMessage, setSuccessMessage] = useState<string>("");
   const [backendStatus, setBackendStatus] = useState<"checking" | "connected" | "disconnected">("checking");
+  const [retryCount, setRetryCount] = useState(0);
+
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
-    // Check backend connection on mount
-    checkBackendConnection();
-    // Check every 5 seconds
-    const interval = setInterval(checkBackendConnection, 5000);
-    return () => clearInterval(interval);
-  }, []);
+    const clearPollingTimeout = () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
 
-  const checkBackendConnection = async () => {
-    try {
-      const response = await fetch("/health", { method: "GET" });
-      setBackendStatus(response.ok ? "connected" : "disconnected");
-    } catch {
-      setBackendStatus("disconnected");
-    }
-  };
+    const checkBackendConnection = async () => {
+      try {
+        const response = await fetch("/health", { method: "GET" });
+        if (response.ok) {
+          setBackendStatus("connected");
+          setRetryCount(0); // Reset on success
+        } else {
+          throw new Error("Backend not ready");
+        }
+      } catch {
+        if (retryCount < MAX_RETRIES) {
+          setRetryCount(prev => prev + 1);
+          setBackendStatus("checking");
+        } else {
+          setBackendStatus("disconnected");
+        }
+      }
+    };
+
+    const poll = () => {
+      if (backendStatus === "connected") return;
+
+      checkBackendConnection().finally(() => {
+        if (backendStatus !== "connected") {
+          const delay = (2 ** retryCount) * 1000;
+          timeoutRef.current = setTimeout(poll, delay);
+        }
+      });
+    };
+
+    clearPollingTimeout();
+    poll();
+
+    return clearPollingTimeout;
+  }, [backendStatus, retryCount]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -95,6 +126,12 @@ export const SimulationForm = ({ onSimulationStart }: SimulationFormProps) => {
     }
   };
 
+  const getBackendBadgeText = () => {
+    if (backendStatus === 'connected') return 'Backend Connected';
+    if (backendStatus === 'disconnected') return 'Backend Offline';
+    return `Connecting... (${retryCount}/${MAX_RETRIES})`;
+  };
+
   return (
     <div className="flex items-center justify-center p-4">
       <Card className="w-full max-w-md card-glow">
@@ -104,19 +141,21 @@ export const SimulationForm = ({ onSimulationStart }: SimulationFormProps) => {
               <CardTitle className="text-2xl font-bold text-card-title">
                 Rubix Network Simulator
               </CardTitle>
+              <CardDescription>
+                Configure and run network transaction simulations
+              </CardDescription>
             </div>
-            <Badge 
-              variant={backendStatus === "connected" ? "default" : backendStatus === "checking" ? "secondary" : "destructive"}
-              className="ml-2"
-            >
-              {backendStatus === "connected" && <CheckCircle className="h-3 w-3 mr-1" />}
-              {backendStatus === "disconnected" && <XCircle className="h-3 w-3 mr-1" />}
-              {backendStatus === "checking" ? "Checking..." : backendStatus === "connected" ? "Backend Connected" : "Backend Offline"}
-            </Badge>
+            <div className="flex items-center space-x-2">
+              <Badge 
+                variant={backendStatus === "connected" ? "default" : backendStatus === "checking" ? "secondary" : "destructive"}
+                className="ml-2"
+              >
+                {backendStatus === "connected" && <CheckCircle className="h-3 w-3 mr-1" />}
+                {backendStatus === "disconnected" && <XCircle className="h-3 w-3 mr-1" />}
+                {getBackendBadgeText()}
+              </Badge>
+            </div>
           </div>
-          <p className="text-muted-foreground">
-            Configure and run network transaction simulations
-          </p>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
