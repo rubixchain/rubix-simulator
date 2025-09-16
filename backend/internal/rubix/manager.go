@@ -13,7 +13,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"sort"
+
+	// "sort"
 	"strings"
 	"sync"
 	"time"
@@ -23,13 +24,13 @@ import (
 
 // NodeInfo represents information about a Rubix node
 type NodeInfo struct {
-	ID         string `json:"id"`
-	ServerPort int    `json:"server_port"`
-	GrpcPort   int    `json:"grpc_port"`
-	DID        string `json:"did"`
-	PeerID     string `json:"peer_id"`
-	IsQuorum   bool   `json:"is_quorum"`
-	Status     string `json:"status"`
+	ID         string    `json:"id"`
+	ServerPort int       `json:"server_port"`
+	GrpcPort   int       `json:"grpc_port"`
+	DID        string    `json:"did"`
+	PeerID     string    `json:"peer_id"`
+	IsQuorum   bool      `json:"is_quorum"`
+	Status     string    `json:"status"`
 	Process    *exec.Cmd `json:"-"`
 }
 
@@ -51,7 +52,7 @@ func NewManager() *Manager {
 // NewManagerWithConfig creates a new Rubix node manager with custom configuration
 func NewManagerWithConfig(cfg *config.RubixConfig) *Manager {
 	// Create a dedicated directory for all Rubix-related data
-	os.MkdirAll(cfg.DataDir, 0755)
+	os.MkdirAll(cfg.DataDir, 0o755)
 
 	return &Manager{
 		nodes:        make(map[string]*NodeInfo),
@@ -74,11 +75,16 @@ func (m *Manager) StartNodes(transactionNodeCount int, fresh bool) error {
 		return fmt.Errorf("maximum %d transaction nodes allowed", m.config.MaxTransactionNodes)
 	}
 
-	// Check if this is first run or restart
+	// On subsequent runs, just select the active nodes
 	if !fresh && m.nodeMetadataExists() {
-		log.Println("Found existing node setup, checking if adjustment needed...")
+		log.Println("Found existing node setup. Selecting active nodes...")
 		return m.adjustNodeCount(transactionNodeCount)
 	}
+
+	// On a fresh run, start all 20 nodes
+	log.Println("Fresh start: starting all 20 transaction nodes...")
+
+transactionNodeCount = m.config.MaxTransactionNodes // Always start max nodes
 
 	// Clean up if fresh start requested
 	if fresh {
@@ -92,20 +98,20 @@ func (m *Manager) StartNodes(transactionNodeCount int, fresh bool) error {
 	}
 
 	totalNodes := m.config.QuorumNodeCount + transactionNodeCount
-	log.Printf("Starting %d nodes (%d quorum + %d transaction)", totalNodes, m.config.QuorumNodeCount, transactionNodeCount)
+	// log.Printf("Starting %d nodes (%d quorum + %d transaction)", totalNodes, m.config.QuorumNodeCount, transactionNodeCount)
 
 	// Start all nodes
 	var quorumList []QuorumData
 	log.Printf("================== PHASE 1: Starting Nodes ==================")
-	log.Printf("Total nodes to start: %d (Quorum: %d, Transaction: %d)", 
+	log.Printf("Total nodes to start: %d (Quorum: %d, Transaction: %d)",
 		totalNodes, m.config.QuorumNodeCount, totalNodes-m.config.QuorumNodeCount)
-	
+
 	for i := 0; i < totalNodes; i++ {
 		nodeID := fmt.Sprintf("node%d", i)
 		serverPort := m.config.BaseServerPort + i
 		grpcPort := m.config.BaseGrpcPort + i
 		isQuorum := i < m.config.QuorumNodeCount
-		
+
 		nodeType := "transaction"
 		if isQuorum {
 			nodeType = "quorum"
@@ -141,11 +147,11 @@ func (m *Manager) StartNodes(transactionNodeCount int, fresh bool) error {
 		if err != nil {
 			return fmt.Errorf("failed to create DID for %s: %w", nodeID, err)
 		}
-		
+
 		// Log raw values for debugging
 		log.Printf("  DEBUG: Raw DID value: '%s' (length: %d)", did, len(did))
 		log.Printf("  DEBUG: Raw PeerID value: '%s' (length: %d)", peerID, len(peerID))
-		
+
 		// Safe string slicing to avoid panic
 		didDisplay := did
 		if len(did) > 16 {
@@ -155,7 +161,7 @@ func (m *Manager) StartNodes(transactionNodeCount int, fresh bool) error {
 		if len(peerID) > 8 {
 			peerIDDisplay = peerID[:8] + "..."
 		}
-		
+
 		if peerID == "" {
 			log.Printf("  ⚠ DID created for %s: %s (WARNING: PeerID is empty!)", nodeID, didDisplay)
 		} else {
@@ -174,13 +180,13 @@ func (m *Manager) StartNodes(transactionNodeCount int, fresh bool) error {
 		}
 
 		m.nodes[nodeID] = nodeInfo
-		
+
 		if isQuorum {
 			// Add to quorum list
 			log.Printf("  DEBUG: Adding %s to quorum list with DID: '%s' (length: %d)", nodeID, nodeInfo.DID, len(nodeInfo.DID))
 			quorumList = append(quorumList, QuorumData{
 				Type:    2,
-				Address: nodeInfo.DID,  // Fixed: use nodeInfo.DID instead of did
+				Address: nodeInfo.DID, // Fixed: use nodeInfo.DID instead of did
 			})
 			log.Printf("  Added %s to quorum list (total quorum members: %d)", nodeID, len(quorumList))
 		}
@@ -226,7 +232,7 @@ func (m *Manager) StartNodes(transactionNodeCount int, fresh bool) error {
 		}
 		log.Printf("  [%d] Quorum DID: %s (Type: %d)", i+1, addrDisplay, q.Type)
 	}
-	
+
 	quorumAddSuccess := 0
 	for nodeID, nodeInfo := range m.nodes {
 		nodeType := "transaction"
@@ -240,7 +246,7 @@ func (m *Manager) StartNodes(transactionNodeCount int, fresh bool) error {
 		} else {
 			log.Printf("  ✓ Successfully added quorum list to %s", nodeID)
 			quorumAddSuccess++
-			
+
 			// Verify quorum was added correctly
 			addedQuorum, err := client.GetAllQuorum()
 			if err != nil {
@@ -298,7 +304,7 @@ func (m *Manager) StartNodes(transactionNodeCount int, fresh bool) error {
 				}
 				continue
 			}
-			
+
 			// Verify tokens were generated
 			log.Printf("  Checking balance for %s...", nodeID)
 			balance, err := client.GetAccountBalance(nodeInfo.DID)
@@ -306,9 +312,9 @@ func (m *Manager) StartNodes(transactionNodeCount int, fresh bool) error {
 				log.Printf("  ✗ Failed to check balance: %v", err)
 				break
 			}
-			
+
 			log.Printf("  Balance for %s: %.3f RBT", nodeID, balance)
-			
+
 			if balance > 0 {
 				log.Printf("  ✓ Successfully generated tokens for %s (Balance: %.3f RBT)", nodeID, balance)
 				tokenGenerated = true
@@ -342,24 +348,25 @@ func (m *Manager) StartNodes(transactionNodeCount int, fresh bool) error {
 	log.Printf("  - Quorum configured: %d/%d", quorumAddSuccess, len(m.nodes))
 	log.Printf("  - Quorum setup: %d/%d", quorumSetupSuccess, m.config.QuorumNodeCount)
 	log.Printf("  - Tokens generated: %d/%d", tokenGenSuccess, len(m.nodes))
-	
+
 	if registrationSuccess < len(m.nodes) || quorumAddSuccess < len(m.nodes) || tokenGenSuccess < len(m.nodes) {
 		log.Printf("⚠ WARNING: Some operations failed. Check logs above for details.")
 	} else {
 		log.Printf("✓ All nodes successfully configured and ready!")
 	}
-	
+
 	return nil
 }
+
 
 // startNodeProcess starts a rubixgoplatform process
 func (m *Manager) startNodeProcess(nodeID string, index int) error {
 	buildDir := m.getBuildDir()
-	
+
 	// Get absolute paths
 	absDataDir, _ := filepath.Abs(m.dataDir)
 	absRubixPath := filepath.Join(absDataDir, "rubixgoplatform")
-	
+
 	// Define binary names
 	rubixBinName := "rubixgoplatform"
 	ipfsBinName := "ipfs"
@@ -367,12 +374,12 @@ func (m *Manager) startNodeProcess(nodeID string, index int) error {
 		rubixBinName += ".exe"
 		ipfsBinName += ".exe"
 	}
-	
+
 	// Source paths in build directory
 	srcRubixPath := filepath.Join(absRubixPath, buildDir, rubixBinName)
 	srcIPFSPath := filepath.Join(absRubixPath, buildDir, ipfsBinName)
 	srcSwarmKeyPath := filepath.Join(absRubixPath, buildDir, "testswarm.key")
-	
+
 	// Verify source files exist
 	if _, err := os.Stat(srcRubixPath); err != nil {
 		return fmt.Errorf("rubixgoplatform not found at %s - please ensure platform is built", srcRubixPath)
@@ -386,15 +393,15 @@ func (m *Manager) startNodeProcess(nodeID string, index int) error {
 
 	// Create node directory
 	nodeDir := filepath.Join(absDataDir, "nodes", nodeID)
-	if err := os.MkdirAll(nodeDir, 0755); err != nil {
+	if err := os.MkdirAll(nodeDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create node directory: %w", err)
 	}
-	
+
 	// Copy all required files to node directory
 	nodeRubixPath := filepath.Join(nodeDir, rubixBinName)
 	nodeIPFSPath := filepath.Join(nodeDir, ipfsBinName)
 	nodeSwarmKeyPath := filepath.Join(nodeDir, "testswarm.key")
-	
+
 	// Copy rubixgoplatform
 	if _, err := os.Stat(nodeRubixPath); err != nil {
 		log.Printf("Copying rubixgoplatform to %s", nodeDir)
@@ -402,10 +409,10 @@ func (m *Manager) startNodeProcess(nodeID string, index int) error {
 			return fmt.Errorf("failed to copy rubixgoplatform: %w", err)
 		}
 		if runtime.GOOS != "windows" {
-			os.Chmod(nodeRubixPath, 0755)
+			os.Chmod(nodeRubixPath, 0o755)
 		}
 	}
-	
+
 	// Copy IPFS binary
 	if _, err := os.Stat(nodeIPFSPath); err != nil {
 		log.Printf("Copying IPFS binary to %s", nodeDir)
@@ -413,10 +420,10 @@ func (m *Manager) startNodeProcess(nodeID string, index int) error {
 			return fmt.Errorf("failed to copy IPFS: %w", err)
 		}
 		if runtime.GOOS != "windows" {
-			os.Chmod(nodeIPFSPath, 0755)
+			os.Chmod(nodeIPFSPath, 0o755)
 		}
 	}
-	
+
 	// Copy testswarm.key
 	if _, err := os.Stat(nodeSwarmKeyPath); err != nil {
 		log.Printf("Copying testswarm.key to %s", nodeDir)
@@ -435,7 +442,7 @@ func (m *Manager) startNodeProcess(nodeID string, index int) error {
 		"-p", nodeID,
 		"-n", fmt.Sprintf("%d", index),
 		"-s",
-		"-port", fmt.Sprintf("%d", port),                 
+		"-port", fmt.Sprintf("%d", port),
 		"-testNet",
 		"-grpcPort", fmt.Sprintf("%d", grpcPort),
 	}
@@ -444,7 +451,7 @@ func (m *Manager) startNodeProcess(nodeID string, index int) error {
 	if runtime.GOOS == "windows" {
 		// On Windows, create a batch file to run the node in a new window
 		windowTitle := fmt.Sprintf("Rubix Node %s - Port %d", nodeID, port)
-		
+
 		// Create batch file content - run from node directory using local copy
 		batchContent := fmt.Sprintf(`@echo off
 title %s
@@ -475,20 +482,20 @@ echo.
 echo Node stopped. Press any key to close this window...
 pause > nul`,
 			windowTitle,
-			nodeID, 
+			nodeID,
 			port,
 			nodeDir,
 			nodeDir,
 			rubixBinName,
 			rubixBinName,
 			strings.Join(args, " "))
-		
+
 		// Write batch file
 		batchPath := filepath.Join(m.dataDir, fmt.Sprintf("node_%s.bat", nodeID))
-		if err := os.WriteFile(batchPath, []byte(batchContent), 0755); err != nil {
+		if err := os.WriteFile(batchPath, []byte(batchContent), 0o755); err != nil {
 			return fmt.Errorf("failed to create batch file: %w", err)
 		}
-		
+
 		// Start the batch file in a new window
 		cmd = exec.Command("cmd", "/c", "start", "", batchPath)
 	} else {
@@ -532,7 +539,6 @@ pause > nul`,
 	return nil
 }
 
-
 // StopAllNodes stops all running nodes
 func (m *Manager) StopAllNodes() error {
 	m.mu.Lock()
@@ -543,7 +549,7 @@ func (m *Manager) StopAllNodes() error {
 	for nodeID, nodeInfo := range m.nodes {
 		// Try graceful shutdown first with a short timeout
 		client := NewClient(nodeInfo.ServerPort)
-		
+
 		// Create a channel to handle the shutdown attempt
 		done := make(chan bool, 1)
 		go func() {
@@ -552,7 +558,7 @@ func (m *Manager) StopAllNodes() error {
 			}
 			done <- true
 		}()
-		
+
 		// Wait for graceful shutdown but only for 2 seconds
 		select {
 		case <-done:
@@ -563,17 +569,17 @@ func (m *Manager) StopAllNodes() error {
 
 		// Force kill the process if it exists
 		if runtime.GOOS == "windows" {
-		    // On Windows, the process is the `start` command, which has already exited.
-		    // The actual node is in a separate window. The user is expected to close the windows manually.
-		    log.Printf("Skipping process kill for %s on Windows. Please close the node window manually.", nodeID)
+			// On Windows, the process is the `start` command, which has already exited.
+			// The actual node is in a separate window. The user is expected to close the windows manually.
+			log.Printf("Skipping process kill for %s on Windows. Please close the node window manually.", nodeID)
 		} else {
-		    // On Linux/Mac, kill the tmux session
-		    sessionName := fmt.Sprintf("rubix-node-%s", nodeID)
-		    if err := exec.Command("tmux", "kill-session", "-t", sessionName).Run(); err != nil {
-		        log.Printf("Warning: failed to kill tmux session for %s: %v", nodeID, err)
-		    } else {
-		        log.Printf("TMUX session killed for %s", nodeID)
-		    }
+			// On Linux/Mac, kill the tmux session
+			sessionName := fmt.Sprintf("rubix-node-%s", nodeID)
+			if err := exec.Command("tmux", "kill-session", "-t", sessionName).Run(); err != nil {
+				log.Printf("Warning: failed to kill tmux session for %s: %v", nodeID, err)
+			} else {
+				log.Printf("TMUX session killed for %s", nodeID)
+			}
 		}
 	}
 
@@ -653,153 +659,38 @@ func (m *Manager) restartExistingNodes() error {
 	return nil
 }
 
-// adjustNodeCount handles dynamic adjustment of node count based on user request
+// adjustNodeCount selects the first N transaction nodes as active for the simulation
 func (m *Manager) adjustNodeCount(requestedTransactionNodes int) error {
 	metadata, err := m.loadMetadata()
 	if err != nil {
 		return fmt.Errorf("failed to load metadata: %w", err)
 	}
 
-	// Count existing transaction nodes (non-quorum)
-	existingTransactionNodes := 0
-	for _, nodeInfo := range metadata {
-		if !nodeInfo.IsQuorum {
-			existingTransactionNodes++
-		}
-	}
+	log.Printf("Adjusting active nodes: selecting %d transaction nodes from a total of 20", requestedTransactionNodes)
 
-	// If counts match, check if nodes are already running
-	if requestedTransactionNodes == existingTransactionNodes {
-		log.Println("Node count matches, checking status of existing nodes...")
-		allRunning := true
-		for nodeID, nodeInfo := range metadata {
-			client := NewClient(nodeInfo.ServerPort)
-			if err := client.Ping(); err != nil {
-				log.Printf("Node %s is not responding: %v", nodeID, err)
-				allRunning = false
-				break
-			}
-		}
+	// Reset the current nodes map
+	m.nodes = make(map[string]*NodeInfo)
 
-		if allRunning {
-			log.Println("All nodes are already running. Skipping restart.")
-			// Important: Load the running nodes into the manager's state
-			m.nodes = metadata
-			return nil
-		}
-
-		log.Println("One or more nodes not running, proceeding with restart...")
-		return m.restartExistingNodes()
-	}
-
-	requestedTotal := m.config.QuorumNodeCount + requestedTransactionNodes
-	existingTotal := len(metadata)
-
-	log.Printf("Node count adjustment: Existing: %d nodes (%d quorum + %d transaction), Requested: %d nodes (%d quorum + %d transaction)",
-		existingTotal, m.config.QuorumNodeCount, existingTransactionNodes,
-		requestedTotal, m.config.QuorumNodeCount, requestedTransactionNodes)
-
-	// If more nodes requested, start existing and add new ones
-	if requestedTransactionNodes > existingTransactionNodes {
-		log.Printf("Adding %d additional transaction nodes...", requestedTransactionNodes-existingTransactionNodes)
-		
-		// First, restart all existing nodes
-		if err := m.restartExistingNodes(); err != nil {
-			return fmt.Errorf("failed to restart existing nodes: %w", err)
-		}
-
-		// Then add new transaction nodes
-		return m.addTransactionNodes(requestedTransactionNodes - existingTransactionNodes)
-	}
-
-	// If fewer nodes requested, stop excess nodes
-	log.Printf("Removing %d excess transaction nodes...", existingTransactionNodes-requestedTransactionNodes)
-	
-	// Identify which transaction nodes to stop (remove the highest numbered ones)
-	nodesToStop := []string{}
-	nodesToKeep := make(map[string]*NodeInfo)
-	
-	// Sort node IDs to ensure consistent ordering
-	transactionNodeIDs := []string{}
+	// Always include quorum nodes
 	for nodeID, nodeInfo := range metadata {
-		if !nodeInfo.IsQuorum {
-			transactionNodeIDs = append(transactionNodeIDs, nodeID)
-		} else {
-			// Always keep quorum nodes
-			nodesToKeep[nodeID] = nodeInfo
+		if nodeInfo.IsQuorum {
+			m.nodes[nodeID] = nodeInfo
 		}
 	}
-	
-	// Sort transaction node IDs numerically
-	sort.Slice(transactionNodeIDs, func(i, j int) bool {
-		var indexI, indexJ int
-		fmt.Sscanf(transactionNodeIDs[i], "node%d", &indexI)
-		fmt.Sscanf(transactionNodeIDs[j], "node%d", &indexJ)
-		return indexI < indexJ
-	})
-	
-	// Keep the first N transaction nodes, stop the rest
-	for i, nodeID := range transactionNodeIDs {
-		if i < requestedTransactionNodes {
-			nodesToKeep[nodeID] = metadata[nodeID]
-		} else {
-			nodesToStop = append(nodesToStop, nodeID)
-		}
-	}
-	
-	log.Printf("Stopping nodes: %v", nodesToStop)
-	log.Printf("Keeping nodes: %d", len(nodesToKeep))
-	
-	// Stop excess nodes
-	for _, nodeID := range nodesToStop {
-		if nodeInfo, exists := m.nodes[nodeID]; exists && nodeInfo.Process != nil {
-			log.Printf("Stopping node %s", nodeID)
-			nodeInfo.Process.Process.Kill()
-			delete(m.nodes, nodeID)
-		}
-	}
-	
-	// Restart remaining nodes
-	for nodeID, nodeInfo := range nodesToKeep {
-		index := 0
-		fmt.Sscanf(nodeID, "node%d", &index)
 
-		// Start the node process
-		if err := m.startNodeProcess(nodeID, index); err != nil {
-			log.Printf("Failed to restart %s: %v", nodeID, err)
-			continue
-		}
-
-		// Wait for node to be ready
-		client := NewClient(nodeInfo.ServerPort)
-		timeout := time.Duration(m.config.NodeStartupTimeout) * time.Second
-		if err := client.WaitForNode(timeout); err != nil {
-			log.Printf("Node %s failed to start: %v", nodeID, err)
-			continue
-		}
-
-		// Store node info
-		m.nodes[nodeID] = nodeInfo
-		nodeInfo.Status = "running"
-	}
-
-	// Re-setup quorum for quorum nodes
-	for nodeID, nodeInfo := range m.nodes {
-		if nodeInfo.IsQuorum && nodeInfo.Status == "running" {
-			client := NewClient(nodeInfo.ServerPort)
-			if err := client.SetupQuorum(nodeInfo.DID, m.config.DefaultQuorumKeyPassword, m.config.DefaultPrivKeyPassword); err != nil {
-				log.Printf("Warning: failed to setup quorum for %s: %v", nodeID, err)
+	// Select the first N transaction nodes
+	transactionNodesAdded := 0
+	for i := 0; i < m.config.MaxTransactionNodes; i++ {
+		nodeID := fmt.Sprintf("node%d", m.config.QuorumNodeCount+i)
+		if nodeInfo, exists := metadata[nodeID]; exists {
+			if !nodeInfo.IsQuorum && transactionNodesAdded < requestedTransactionNodes {
+				m.nodes[nodeID] = nodeInfo
+				transactionNodesAdded++
 			}
 		}
 	}
 
-	// Save updated metadata
-	if err := m.saveMetadata(); err != nil {
-		log.Printf("Warning: failed to save updated metadata: %v", err)
-	}
-
-	log.Printf("Successfully adjusted to %d nodes (%d quorum + %d transaction)", 
-		len(m.nodes), m.config.QuorumNodeCount, requestedTransactionNodes)
+	log.Printf("Selected %d quorum nodes and %d transaction nodes", m.config.QuorumNodeCount, transactionNodesAdded)
 	return nil
 }
 
@@ -840,7 +731,7 @@ func (m *Manager) addTransactionNodes(additionalCount int) error {
 		serverPort := m.config.BaseServerPort + nodeIndex
 		grpcPort := m.config.BaseGrpcPort + nodeIndex
 
-		log.Printf("Starting additional transaction node %s (ports: server=%d, grpc=%d)", 
+		log.Printf("Starting additional transaction node %s (ports: server=%d, grpc=%d)",
 			nodeID, serverPort, grpcPort)
 
 		// Start the node process
@@ -923,7 +814,7 @@ func (m *Manager) addTransactionNodes(additionalCount int) error {
 			continue
 		}
 		client := NewClient(nodeInfo.ServerPort)
-		
+
 		// Try to generate tokens with retries
 		tokenGenerated := false
 		maxRetries := 3
@@ -939,21 +830,21 @@ func (m *Manager) addTransactionNodes(additionalCount int) error {
 				time.Sleep(time.Second * time.Duration(attempt))
 				continue
 			}
-			
+
 			// Verify tokens were generated
 			balance, err := client.GetAccountBalance(nodeInfo.DID)
 			if err != nil {
 				log.Printf("  ✗ Failed to check balance for %s: %v", nodeInfo.ID, err)
 				break
 			}
-			
+
 			if balance > 0 {
 				log.Printf("  ✓ Generated %.2f tokens for %s", balance, nodeInfo.ID)
 				tokenGenerated = true
 				break
 			}
 		}
-		
+
 		if !tokenGenerated {
 			log.Printf("  ⚠ Warning: Could not generate tokens for %s", nodeInfo.ID)
 		}
@@ -1037,7 +928,7 @@ func (m *Manager) RecoverNode(nodeID string) error {
 	// Clean node directory
 	nodeDir := filepath.Join(m.dataDir, "nodes", nodeID)
 	tempDir := nodeDir + "_backup"
-	
+
 	// Backup existing data
 	if err := os.Rename(nodeDir, tempDir); err != nil {
 		log.Printf("Warning: failed to backup node directory: %v", err)
@@ -1045,7 +936,7 @@ func (m *Manager) RecoverNode(nodeID string) error {
 	defer os.RemoveAll(tempDir)
 
 	// Recreate node directory
-	if err := os.MkdirAll(nodeDir, 0755); err != nil {
+	if err := os.MkdirAll(nodeDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create node directory: %w", err)
 	}
 
@@ -1088,10 +979,10 @@ func (m *Manager) RecoverNode(nodeID string) error {
 
 	nodeInfo.Status = "running"
 	log.Printf("Successfully recovered node %s", nodeID)
-	
+
 	// Save updated metadata
 	m.saveMetadata()
-	
+
 	return nil
 }
 
@@ -1149,7 +1040,7 @@ func (m *Manager) setupRubixPlatform() error {
 	buildPath := filepath.Join(m.rubixPath, buildDir)
 
 	// Create build directory
-	if err := os.MkdirAll(buildPath, 0755); err != nil {
+	if err := os.MkdirAll(buildPath, 0o755); err != nil {
 		return fmt.Errorf("failed to create build directory: %w", err)
 	}
 
@@ -1187,7 +1078,7 @@ func (m *Manager) setupRubixPlatform() error {
 		}
 
 		log.Printf("Building rubixgoplatform using make %s...", makeTarget)
-		
+
 		// Use make command to build
 		cmd := exec.Command("make", makeTarget)
 		cmd.Dir = m.rubixPath
@@ -1222,7 +1113,7 @@ func (m *Manager) downloadSwarmKey() error {
 
 	buildDir := m.getBuildDir()
 	destPath := filepath.Join(m.rubixPath, buildDir, "testswarm.key")
-	
+
 	// Check if already exists
 	if _, err := os.Stat(destPath); err == nil {
 		log.Printf("Swarm key already exists at %s", destPath)
@@ -1239,17 +1130,17 @@ func (m *Manager) downloadSwarmKey() error {
 	// Download from URL with retry
 	log.Printf("Downloading swarm key from: %s", m.config.TestSwarmKeyURL)
 	tempFile := filepath.Join(m.dataDir, "testswarm.key.tmp")
-	
+
 	if err := m.downloadWithRetry(m.config.TestSwarmKeyURL, tempFile, 3); err != nil {
 		return fmt.Errorf("failed to download swarm key: %w", err)
 	}
-	
+
 	// Move to final location
 	if err := m.moveFile(tempFile, destPath); err != nil {
 		os.Remove(tempFile)
 		return fmt.Errorf("failed to move swarm key: %w", err)
 	}
-	
+
 	log.Println("Successfully downloaded test swarm key")
 	return nil
 }
@@ -1261,11 +1152,11 @@ func (m *Manager) DownloadIPFSManually() error {
 	if runtime.GOOS == "windows" {
 		ipfsBinName += ".exe"
 	}
-	
+
 	// Remove existing IPFS binary if present
 	ipfsPath := filepath.Join(m.rubixPath, buildDir, ipfsBinName)
 	os.Remove(ipfsPath)
-	
+
 	// Download IPFS
 	return m.downloadIPFS()
 }
@@ -1273,31 +1164,31 @@ func (m *Manager) DownloadIPFSManually() error {
 // downloadIPFS downloads the IPFS binary with retry logic
 func (m *Manager) downloadIPFS() error {
 	log.Printf("Downloading IPFS binary (version: %s)...", m.config.IPFSVersion)
-	
+
 	buildDir := m.getBuildDir()
 	ipfsBinName := "ipfs"
 	if runtime.GOOS == "windows" {
 		ipfsBinName += ".exe"
 	}
-	
+
 	// Ensure build directory exists
 	buildPath := filepath.Join(m.rubixPath, buildDir)
-	if err := os.MkdirAll(buildPath, 0755); err != nil {
+	if err := os.MkdirAll(buildPath, 0o755); err != nil {
 		return fmt.Errorf("failed to create build directory: %w", err)
 	}
-	
+
 	// Check if IPFS already exists
 	ipfsPath := filepath.Join(m.rubixPath, buildDir, ipfsBinName)
 	if _, err := os.Stat(ipfsPath); err == nil {
 		log.Printf("IPFS binary already exists at %s", ipfsPath)
 		return nil
 	}
-	
+
 	// Construct download URL based on OS
 	var downloadURL string
 	var archiveExt string
 	osArch := "amd64"
-	
+
 	switch runtime.GOOS {
 	case "linux":
 		downloadURL = fmt.Sprintf("https://github.com/ipfs/kubo/releases/download/%s/kubo_%s_linux-%s.tar.gz",
@@ -1314,22 +1205,22 @@ func (m *Manager) downloadIPFS() error {
 	default:
 		return fmt.Errorf("unsupported operating system for IPFS: %s", runtime.GOOS)
 	}
-	
+
 	// Download with retry
 	tempFile := filepath.Join(m.dataDir, fmt.Sprintf("kubo_%s%s", m.config.IPFSVersion, archiveExt))
 	if err := m.downloadWithRetry(downloadURL, tempFile, 3); err != nil {
 		return fmt.Errorf("failed to download IPFS: %w", err)
 	}
 	defer os.Remove(tempFile)
-	
+
 	// Extract archive
 	log.Println("Extracting IPFS binary...")
 	tempExtractDir := filepath.Join(m.dataDir, "kubo_temp")
-	if err := os.MkdirAll(tempExtractDir, 0755); err != nil {
+	if err := os.MkdirAll(tempExtractDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create temp extraction directory: %w", err)
 	}
 	defer os.RemoveAll(tempExtractDir)
-	
+
 	if archiveExt == ".zip" {
 		if err := m.extractZip(tempFile, tempExtractDir); err != nil {
 			return fmt.Errorf("failed to extract IPFS zip: %w", err)
@@ -1339,10 +1230,10 @@ func (m *Manager) downloadIPFS() error {
 			return fmt.Errorf("failed to extract IPFS tar.gz: %w", err)
 		}
 	}
-	
+
 	// The IPFS binary is inside the kubo folder after extraction
 	srcIPFS := filepath.Join(tempExtractDir, "kubo", ipfsBinName)
-	
+
 	// Check if the file exists at the expected location
 	if _, err := os.Stat(srcIPFS); err != nil {
 		// Try alternative location (sometimes it's directly in kubo/)
@@ -1357,19 +1248,19 @@ func (m *Manager) downloadIPFS() error {
 			return fmt.Errorf("IPFS binary not found at %s or %s", srcIPFS, altSrcIPFS)
 		}
 	}
-	
+
 	log.Printf("Moving IPFS binary from %s to %s", srcIPFS, ipfsPath)
 	if err := m.moveFile(srcIPFS, ipfsPath); err != nil {
 		return fmt.Errorf("failed to move IPFS binary: %w", err)
 	}
-	
+
 	// Make executable on Unix systems
 	if runtime.GOOS != "windows" {
-		if err := os.Chmod(ipfsPath, 0755); err != nil {
+		if err := os.Chmod(ipfsPath, 0o755); err != nil {
 			return fmt.Errorf("failed to make IPFS executable: %w", err)
 		}
 	}
-	
+
 	log.Printf("Successfully downloaded and installed IPFS %s", m.config.IPFSVersion)
 	return nil
 }
@@ -1411,7 +1302,7 @@ func (m *Manager) saveMetadata() error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(m.metadataFile, data, 0644)
+	return os.WriteFile(m.metadataFile, data, 0o644)
 }
 
 // loadMetadata loads node metadata from file
@@ -1456,7 +1347,7 @@ func (m *Manager) CleanupAll() error {
 	}
 
 	// Recreate the data directory for future use
-	os.MkdirAll(m.dataDir, 0755)
+	os.MkdirAll(m.dataDir, 0o755)
 
 	log.Println("All Rubix data cleaned up")
 	return nil
@@ -1468,7 +1359,7 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(dst, data, 0644)
+	return os.WriteFile(dst, data, 0o644)
 }
 
 // GetNodes returns all nodes
@@ -1523,7 +1414,7 @@ func (m *Manager) CheckAllNodesStatus() map[string]string {
 	defer m.mu.RUnlock()
 
 	statuses := make(map[string]string)
-	
+
 	for nodeID, nodeInfo := range m.nodes {
 		client := NewClient(nodeInfo.ServerPort)
 		if err := client.Ping(); err != nil {
@@ -1549,7 +1440,7 @@ func (m *Manager) GetNodeMetrics(nodeID string) (map[string]interface{}, error) 
 	}
 
 	client := NewClient(nodeInfo.ServerPort)
-	
+
 	metrics := make(map[string]interface{})
 	metrics["node_id"] = nodeID
 	metrics["server_port"] = nodeInfo.ServerPort
@@ -1565,7 +1456,7 @@ func (m *Manager) GetNodeMetrics(nodeID string) (map[string]interface{}, error) 
 		if accountInfo, err := client.GetAccountInfo(nodeInfo.DID); err == nil {
 			metrics["account_info"] = accountInfo
 		}
-		
+
 		// Get peer count
 		if peerCount, err := client.GetPeerCount(); err == nil {
 			metrics["peer_count"] = peerCount
@@ -1584,7 +1475,7 @@ func (m *Manager) MonitorNodes(interval time.Duration, stopCh <-chan struct{}) {
 		select {
 		case <-ticker.C:
 			statuses := m.CheckAllNodesStatus()
-			
+
 			// Log status summary
 			running := 0
 			failed := 0
@@ -1595,10 +1486,10 @@ func (m *Manager) MonitorNodes(interval time.Duration, stopCh <-chan struct{}) {
 					failed++
 				}
 			}
-			
+
 			if failed > 0 {
 				log.Printf("Node Status: %d running, %d failed", running, failed)
-				
+
 				// Attempt to recover failed nodes
 				for nodeID, status := range statuses {
 					if status == "failed" {
@@ -1609,7 +1500,7 @@ func (m *Manager) MonitorNodes(interval time.Duration, stopCh <-chan struct{}) {
 					}
 				}
 			}
-			
+
 		case <-stopCh:
 			log.Println("Stopping node monitoring")
 			return
@@ -1620,22 +1511,22 @@ func (m *Manager) MonitorNodes(interval time.Duration, stopCh <-chan struct{}) {
 // downloadWithRetry downloads a file with retry logic
 func (m *Manager) downloadWithRetry(url string, destPath string, maxRetries int) error {
 	var lastErr error
-	
+
 	for i := 0; i < maxRetries; i++ {
 		if i > 0 {
 			log.Printf("Retry %d/%d downloading from %s", i+1, maxRetries, url)
 			time.Sleep(time.Duration(i*2) * time.Second) // Exponential backoff
 		}
-		
+
 		if err := m.downloadFile(url, destPath); err != nil {
 			lastErr = err
 			log.Printf("Download attempt %d failed: %v", i+1, err)
 			continue
 		}
-		
+
 		return nil
 	}
-	
+
 	return fmt.Errorf("failed after %d retries: %w", maxRetries, lastErr)
 }
 
@@ -1647,28 +1538,28 @@ func (m *Manager) downloadFile(url string, destPath string) error {
 		return fmt.Errorf("failed to create file: %w", err)
 	}
 	defer out.Close()
-	
+
 	// Get the data
 	client := &http.Client{
 		Timeout: 5 * time.Minute,
 	}
-	
+
 	resp, err := client.Get(url)
 	if err != nil {
 		return fmt.Errorf("failed to download: %w", err)
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("bad status: %s", resp.Status)
 	}
-	
+
 	// Write the body to file
 	_, err = io.Copy(out, resp.Body)
 	if err != nil {
 		return fmt.Errorf("failed to write file: %w", err)
 	}
-	
+
 	return nil
 }
 
@@ -1679,38 +1570,38 @@ func (m *Manager) extractZip(src string, dest string) error {
 		return err
 	}
 	defer reader.Close()
-	
+
 	for _, file := range reader.File {
 		path := filepath.Join(dest, file.Name)
-		
+
 		if file.FileInfo().IsDir() {
 			os.MkdirAll(path, file.Mode())
 			continue
 		}
-		
+
 		// Create directory if needed
-		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			return err
 		}
-		
+
 		fileReader, err := file.Open()
 		if err != nil {
 			return err
 		}
 		defer fileReader.Close()
-		
+
 		targetFile, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, file.Mode())
 		if err != nil {
 			return err
 		}
 		defer targetFile.Close()
-		
+
 		_, err = io.Copy(targetFile, fileReader)
 		if err != nil {
 			return err
 		}
 	}
-	
+
 	return nil
 }
 
@@ -1721,15 +1612,15 @@ func (m *Manager) extractTarGz(src string, dest string) error {
 		return err
 	}
 	defer file.Close()
-	
+
 	gzr, err := gzip.NewReader(file)
 	if err != nil {
 		return err
 	}
 	defer gzr.Close()
-	
+
 	tr := tar.NewReader(gzr)
-	
+
 	for {
 		header, err := tr.Next()
 		if err == io.EOF {
@@ -1738,25 +1629,25 @@ func (m *Manager) extractTarGz(src string, dest string) error {
 		if err != nil {
 			return err
 		}
-		
+
 		target := filepath.Join(dest, header.Name)
-		
+
 		switch header.Typeflag {
 		case tar.TypeDir:
-			if err := os.MkdirAll(target, 0755); err != nil {
+			if err := os.MkdirAll(target, 0o755); err != nil {
 				return err
 			}
 		case tar.TypeReg:
 			// Create directory if needed
-			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 				return err
 			}
-			
+
 			file, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(header.Mode))
 			if err != nil {
 				return err
 			}
-			
+
 			if _, err := io.Copy(file, tr); err != nil {
 				file.Close()
 				return err
@@ -1764,32 +1655,32 @@ func (m *Manager) extractTarGz(src string, dest string) error {
 			file.Close()
 		}
 	}
-	
+
 	return nil
 }
 
 // moveFile moves a file from src to dst
 func (m *Manager) moveFile(src string, dst string) error {
 	// Ensure destination directory exists
-	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return fmt.Errorf("failed to create destination directory: %w", err)
 	}
-	
+
 	// Try rename first (fastest if on same filesystem)
 	if err := os.Rename(src, dst); err == nil {
 		return nil
 	}
-	
+
 	// Fall back to copy and delete
 	input, err := os.ReadFile(src)
 	if err != nil {
 		return fmt.Errorf("failed to read source file: %w", err)
 	}
-	
-	if err := os.WriteFile(dst, input, 0644); err != nil {
+
+	if err := os.WriteFile(dst, input, 0o644); err != nil {
 		return fmt.Errorf("failed to write destination file: %w", err)
 	}
-	
+
 	// Remove original
 	os.Remove(src)
 	return nil
@@ -1804,13 +1695,13 @@ func (m *Manager) listDirectoryRecursive(dir string, currentDepth, maxDepth int,
 	if currentDepth > maxDepth {
 		return
 	}
-	
+
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		log.Printf("%sError reading directory %s: %v", indent, dir, err)
 		return
 	}
-	
+
 	for _, entry := range entries {
 		if entry.IsDir() {
 			log.Printf("%s[DIR] %s", indent, entry.Name())
