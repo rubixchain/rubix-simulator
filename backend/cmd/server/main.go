@@ -28,6 +28,9 @@ func main() {
 
 	handler := handlers.NewHandler(simulationService, reportGenerator)
 
+	// Auto-start token monitoring if nodes already exist
+	nodeManager.AutoStartTokenMonitoring()
+
 	router := setupRouter(handler)
 
 	c := cors.New(cors.Options{

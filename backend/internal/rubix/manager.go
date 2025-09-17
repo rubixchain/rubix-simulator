@@ -1958,3 +1958,37 @@ func (m *Manager) IsSimulationActive() bool {
 	defer m.simulationMu.RUnlock()
 	return m.simulationActive
 }
+
+// AutoStartTokenMonitoring automatically starts token monitoring if nodes already exist
+func (m *Manager) AutoStartTokenMonitoring() {
+	if !m.config.TokenMonitoringEnabled {
+		log.Printf("Token monitoring is disabled in configuration")
+		return
+	}
+
+	// Check if nodes already exist (from previous startup)
+	if m.nodeMetadataExists() {
+		log.Printf("Existing node metadata found, loading nodes...")
+		metadata, err := m.loadMetadata()
+		if err != nil {
+			log.Printf("Failed to load existing metadata: %v", err)
+			return
+		}
+
+		// Load nodes into manager
+		m.mu.Lock()
+		m.nodes = metadata
+		m.mu.Unlock()
+
+		nodeCount := len(metadata)
+		if nodeCount > 0 {
+			log.Printf("Loaded %d existing nodes from metadata", nodeCount)
+			log.Printf("Auto-starting token monitoring service...")
+			m.StartTokenMonitoring()
+		} else {
+			log.Printf("No existing nodes found in metadata")
+		}
+	} else {
+		log.Printf("No existing node metadata found - token monitoring will start when nodes are created")
+	}
+}

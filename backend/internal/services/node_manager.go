@@ -249,6 +249,13 @@ func (nm *NodeManager) CheckTokenBalances() {
 	}
 }
 
+// AutoStartTokenMonitoring automatically starts token monitoring if nodes already exist
+func (nm *NodeManager) AutoStartTokenMonitoring() {
+	if nm.rubixManager != nil {
+		nm.rubixManager.AutoStartTokenMonitoring()
+	}
+}
+
 // SetSimulationActive controls whether token monitoring should be paused during simulations
 func (nm *NodeManager) SetSimulationActive(active bool) {
 	if nm.rubixManager != nil {
