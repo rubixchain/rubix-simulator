@@ -61,6 +61,8 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
+	// NOTE: Nodes are intentionally NOT stopped when server shuts down
+	// This allows nodes to continue running independently of the backend server
 	// if err := nodeManager.StopAllNodes(); err != nil {
 	// 	log.Printf("Error stopping nodes: %v", err)
 	// }
