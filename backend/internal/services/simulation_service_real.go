@@ -40,18 +40,24 @@ func (ss *SimulationService) StartSimulation(nodeCount, transactionCount int) (s
 		ss.simMu.Unlock()
 		return "", fmt.Errorf("All servers are busy, please try again after some time.")
 	}
-	ss.isSimulationRunning = true
-	ss.simMu.Unlock()
-
+	// Validate parameters before marking simulation as running
 	// nodeCount represents additional non-quorum nodes beyond the 7 quorum nodes
 	// Minimum 2 non-quorum nodes required for transactions
 	if nodeCount < 2 || nodeCount > 20 {
+		ss.simMu.Unlock()
 		return "", fmt.Errorf("non-quorum node count must be between 2 and 20 (need at least 2 for sender/receiver)")
 	}
 	
 	if transactionCount < 1 || transactionCount > 500 {
+		ss.simMu.Unlock()
 		return "", fmt.Errorf("transaction count must be between 1 and 500")
 	}
+
+	ss.isSimulationRunning = true
+	ss.simMu.Unlock()
+
+	// Pause token monitoring during simulation
+	ss.nodeManager.SetSimulationActive(true)
 
 	simulationID := uuid.New().String()
 	
@@ -80,9 +86,21 @@ func (ss *SimulationService) StartSimulation(nodeCount, transactionCount int) (s
 
 func (ss *SimulationService) runSimulation(simulationID string, nodeCount, transactionCount int) {
 	defer func() {
+		// Handle any panic to ensure simulation state is cleaned up
+		if r := recover(); r != nil {
+			log.Printf("ERROR: Simulation %s panicked: %v", simulationID, r)
+			ss.updateReport(simulationID, func(report *models.SimulationReport) {
+				report.IsFinished = true
+				report.Error = fmt.Sprintf("Simulation panicked: %v", r)
+			})
+		}
+		
 		ss.simMu.Lock()
 		ss.isSimulationRunning = false
 		ss.simMu.Unlock()
+		
+		// Resume token monitoring after simulation completes (even if it panicked)
+		ss.nodeManager.SetSimulationActive(false)
 	}()
 
 	// Safely truncate ID for logging

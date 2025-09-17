@@ -186,6 +186,34 @@ func (h *Handler) ListReports(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(reports)
 }
 
+func (h *Handler) CheckTokenBalances(w http.ResponseWriter, r *http.Request) {
+	h.nodeManager.CheckTokenBalances()
+	
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "Token balance check initiated. Check server logs for details.",
+		"timestamp": time.Now(),
+	})
+}
+
+func (h *Handler) GetTokenMonitoringStatus(w http.ResponseWriter, r *http.Request) {
+	isSimActive := h.nodeManager.IsSimulationActive()
+	
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"simulation_active": isSimActive,
+		"token_monitoring_paused": isSimActive,
+		"message": func() string {
+			if isSimActive {
+				return "Token monitoring is paused - simulation is running"
+			}
+			return "Token monitoring is active - no simulation running"
+		}(),
+		"timestamp": time.Now(),
+	})
+}
+
 func (h *Handler) sendError(w http.ResponseWriter, message string, code int) {
 	response := models.ErrorResponse{
 		Error:   http.StatusText(code),

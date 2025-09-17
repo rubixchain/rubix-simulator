@@ -82,6 +82,8 @@ func setupRouter(h *handlers.Handler) *mux.Router {
 	r.HandleFunc("/nodes/stop", h.StopNodes).Methods("POST")
 	r.HandleFunc("/nodes/restart", h.RestartNodes).Methods("POST")
 	r.HandleFunc("/nodes/reset", h.ResetNodes).Methods("POST")
+	r.HandleFunc("/nodes/check-tokens", h.CheckTokenBalances).Methods("POST")
+	r.HandleFunc("/nodes/token-status", h.GetTokenMonitoringStatus).Methods("GET")
 
 	// Simulation endpoints
 	r.HandleFunc("/simulate", h.StartSimulation).Methods("POST")
