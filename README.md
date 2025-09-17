@@ -18,16 +18,16 @@ chmod +x start-all.sh
 ```
 
 This will automatically:
-- Start the Go backend server on port 8080
-- Start the React frontend on port 5173
+- Start the Go backend server on port 8080 
+- Start the Vite development server (React + TypeScript) on port 5173
 - Open your browser to http://localhost:5173
 
 To stop all services, press `Ctrl+C` in the terminal or close the command windows.
 
 ## 📋 Prerequisites
 
-- **Node.js** (v16 or higher) - [Download](https://nodejs.org/)
-- **Go** (v1.19 or higher) - [Download](https://go.dev/dl/)
+- **Node.js** (v18 or higher) - [Download](https://nodejs.org/)
+- **Go** (v1.21 or higher) - [Download](https://go.dev/dl/)
 - **Git** - [Download](https://git-scm.com/)
 - **Build tools**:
   - Windows: MinGW or Visual Studio Build Tools
@@ -46,7 +46,7 @@ If you prefer to set up manually or the start-all script doesn't work:
 
 ### 1. Clone the Repository
 ```bash
-git clone https://github.com/rubixchain/rubix-simulator.git
+git clone <your-repository-url>
 cd rubix-simulator
 ```
 
@@ -66,12 +66,22 @@ cd ..
 
 **Terminal 1 - Backend:**
 ```bash
+# Option 1: Use helper script
+./run-backend.sh      # Linux/Mac
+run-backend.bat       # Windows
+
+# Option 2: Manual start
 cd backend
 go run cmd/server/main.go
 ```
 
 **Terminal 2 - Frontend:**
 ```bash
+# Option 1: Use helper script
+./run-frontend.sh     # Linux/Mac
+run-frontend.bat      # Windows
+
+# Option 2: Manual start
 npm run dev
 ```
 
@@ -120,6 +130,7 @@ The simulator creates a Rubix blockchain network with two types of nodes:
 **Important**: Nodes remain running between simulations for faster testing.
 
 - **Shutdown Nodes**: Click "Shutdown All Nodes" button when finished testing
+- **Script Shutdown**: Use `./shutdown-nodes.sh` (Linux/Mac) or `shutdown-nodes.bat` (Windows)
 - **Auto-cleanup**: Nodes automatically shut down when backend stops (Ctrl+C)
 - **Fresh Start**: Shutdown nodes → Start new simulation
 
@@ -165,8 +176,8 @@ Error: "Failed to start Rubix nodes"
 ```
 **Solutions:**
 - Check disk space (need ~500MB per node)
-- Ensure required ports are free
-- Delete `rubix-data` folder and retry
+- Ensure required ports are free (20000-20030, 10500-10530)
+- Delete `backend/rubix-data` folder and retry
 - Run with administrator/sudo privileges if needed
 
 ### Transaction Failures
@@ -183,20 +194,39 @@ Symptom: High transaction failure rate
 ## 📁 Project Structure
 
 ```
-rubix-sim-flow/
+rubix-simulator/
 ├── backend/                 # Go backend server
-│   ├── cmd/server/          # Server entry point
+│   ├── cmd/
+│   │   ├── server/          # Server entry point
+│   │   └── test_rubix/      # Test utilities
+│   ├── config/             # Configuration files
 │   ├── internal/            # Core business logic
+│   │   ├── config/         # Config management
+│   │   ├── handlers/       # HTTP request handlers
+│   │   ├── middleware/     # HTTP middleware
+│   │   ├── models/         # Data structures
 │   │   ├── rubix/          # Rubix blockchain integration
-│   │   ├── services/       # Node, transaction, report services
-│   │   └── handlers/       # HTTP request handlers
-│   └── rubix-data/         # Runtime node data (git-ignored)
-├── src/                     # React frontend
+│   │   └── services/       # Node, transaction, report services
+│   ├── reports/            # Generated PDF reports
+│   ├── rubix-data/         # Runtime node data (git-ignored)
+│   ├── go.mod              # Go dependencies
+│   └── README.md           # Backend documentation
+├── src/                     # React frontend (Vite + TypeScript)
 │   ├── components/         # UI components
-│   └── lib/               # Utilities
-├── start-all.bat          # Windows quick-start script
-├── start-all.sh           # Linux/Mac quick-start script
-└── README.md              # This file
+│   │   └── ui/             # Shadcn/ui components (Radix UI)
+│   ├── hooks/              # React hooks
+│   ├── lib/                # Utilities
+│   └── pages/              # Application pages
+├── public/                  # Static assets
+├── package.json            # Frontend dependencies
+├── vite.config.ts          # Vite configuration
+├── tailwind.config.ts      # Tailwind CSS config
+├── start-all.bat           # Windows quick-start script
+├── start-all.sh            # Linux/Mac quick-start script
+├── run-backend.*           # Backend start scripts
+├── run-frontend.*          # Frontend start scripts
+├── shutdown-nodes.*        # Node shutdown scripts
+└── README.md               # This file
 ```
 
 ## 🔧 Development
@@ -207,16 +237,17 @@ rubix-sim-flow/
 cd backend
 go test ./...
 
-# Frontend tests
-npm test
+# Frontend linting
+npm run lint
 ```
 
 ### Code Format
 ```bash
-# Backend
+# Backend formatting
+cd backend
 go fmt ./...
 
-# Frontend
+# Frontend linting and formatting
 npm run lint
 ```
 
@@ -276,7 +307,7 @@ This project is licensed under the MIT License - see LICENSE file for details.
 For issues or questions:
 1. Check the troubleshooting section above
 2. Review backend logs in terminal
-3. Check node logs in `rubix-data/node*/log.txt`
+3. Check node logs in `backend/rubix-data/node*/log.txt`
 4. Open an issue on GitHub with:
    - Error messages
    - Steps to reproduce
@@ -294,5 +325,9 @@ cd backend && go run cmd/server/main.go  # Terminal 1
 npm run dev                               # Terminal 2
 
 # Build for production
-cd backend && go build -o server cmd/server/main.go
+cd backend && go build -o rubix-simulator cmd/server/main.go
 npm run build
+
+# Alternative build scripts
+./build.sh             # Linux/Mac
+build.bat              # Windows

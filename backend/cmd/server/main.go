@@ -61,9 +61,9 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	if err := nodeManager.StopAllNodes(); err != nil {
-		log.Printf("Error stopping nodes: %v", err)
-	}
+	// if err := nodeManager.StopAllNodes(); err != nil {
+	// 	log.Printf("Error stopping nodes: %v", err)
+	// }
 
 	if err := srv.Shutdown(ctx); err != nil {
 		log.Printf("Server forced to shutdown: %v", err)
