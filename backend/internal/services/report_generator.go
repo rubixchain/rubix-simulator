@@ -18,6 +18,12 @@ type ReportGenerator struct {
 	reportsPath string
 }
 
+// TableRowData represents a table row with optional links
+type TableRowData struct {
+	cells []string
+	links []string // URLs for each cell (empty string means no link)
+}
+
 func NewReportGenerator(cfg *config.Config) *ReportGenerator {
 	reportsPath := filepath.Join(".", "reports")
 	os.MkdirAll(reportsPath, 0o755)
@@ -45,6 +51,31 @@ func formatDuration(d time.Duration) string {
 		return fmt.Sprintf("%dm", minutes)
 	}
 	return fmt.Sprintf("%ds", seconds)
+}
+
+// buildExplorerLink creates a clickable explorer link for a transaction
+func (rg *ReportGenerator) buildExplorerLink(transactionID string) string {
+	if transactionID == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s/%s", rg.config.ExplorerBaseURL, transactionID)
+}
+
+// formatTransactionDisplay creates display text and link for transaction references
+func (rg *ReportGenerator) formatTransactionDisplay(tx models.Transaction) (string, string) {
+	// Handle failed transactions or transactions without real blockchain IDs
+	if tx.Status != "success" {
+		return "Failed", ""
+	}
+	
+	// For successful transactions, create shortened display with link
+	txIDDisplay := tx.ID
+	if len(txIDDisplay) > 8 {
+		txIDDisplay = txIDDisplay[:8] + "..."
+	}
+	
+	explorerURL := rg.buildExplorerLink(tx.ID)
+	return txIDDisplay, explorerURL
 }
 
 func (rg *ReportGenerator) GeneratePDF(report *models.SimulationReport) (string, error) {
@@ -242,34 +273,45 @@ func (rg *ReportGenerator) addTransactionDetails(pdf *fpdf.Fpdf, report *models.
 		maxTransactions = len(sortedTransactions)
 	}
 
-	txData := [][]string{
-		{"TX ID", "Tokens", "Time", "Status", "Node"},
+	// Prepare table data with links
+
+	tableData := []TableRowData{
+		{cells: []string{"TX ID", "Tokens", "Time", "Status", "Node"}, links: []string{"", "", "", "", ""}}, // Header row
 	}
 
 	for i := 0; i < maxTransactions; i++ {
 		tx := sortedTransactions[i]
 
-		// Safely truncate IDs to prevent slice bounds error
-		txIDDisplay := tx.ID
-		if len(txIDDisplay) > 8 {
-			txIDDisplay = txIDDisplay[:8]
-		}
+		// Get transaction display text and link
+		txIDDisplay, explorerURL := rg.formatTransactionDisplay(tx)
 
+		// Safely truncate node ID
 		nodeIDDisplay := tx.NodeID
 		if len(nodeIDDisplay) > 8 {
 			nodeIDDisplay = nodeIDDisplay[:8]
 		}
 
-		txData = append(txData, []string{
-			txIDDisplay,
-			fmt.Sprintf("%.3f", tx.TokenAmount), // Format as float with 3 decimal places
-			formatDuration(tx.TimeTaken),
-			tx.Status,
-			nodeIDDisplay,
-		})
+		rowData := TableRowData{
+			cells: []string{
+				txIDDisplay,
+				fmt.Sprintf("%.3f", tx.TokenAmount),
+				formatDuration(tx.TimeTaken),
+				tx.Status,
+				nodeIDDisplay,
+			},
+			links: []string{
+				explorerURL, // Link for transaction ID column
+				"",          // No link for other columns
+				"",
+				"",
+				"",
+			},
+		}
+
+		tableData = append(tableData, rowData)
 	}
 
-	rg.addTable(pdf, txData, []float64{30, 25, 25, 30, 30})
+	rg.addTableWithLinks(pdf, tableData, []float64{30, 25, 25, 30, 30})
 
 	if len(sortedTransactions) > maxTransactions {
 		pdf.SetFont("Arial", "I", 8)
@@ -417,6 +459,38 @@ func (rg *ReportGenerator) addTable(pdf *fpdf.Fpdf, data [][]string, widths []fl
 		for j, cell := range row {
 			width := widths[j]
 			pdf.CellFormat(width, 8, cell, "1", 0, "C", i == 0, 0, "")
+		}
+		pdf.Ln(-1)
+	}
+}
+
+// addTableWithLinks creates a table with clickable links support
+func (rg *ReportGenerator) addTableWithLinks(pdf *fpdf.Fpdf, data []TableRowData, widths []float64) {
+	for i, rowData := range data {
+		if i == 0 {
+			pdf.SetFont("Arial", "B", 10)
+			pdf.SetFillColor(240, 240, 240)
+		} else {
+			pdf.SetFont("Arial", "", 10)
+			pdf.SetFillColor(255, 255, 255)
+		}
+
+		for j, cell := range rowData.cells {
+			width := widths[j]
+			
+			// Check if this cell should be a link
+			if i > 0 && j < len(rowData.links) && rowData.links[j] != "" {
+				// Set text color to blue for links
+				pdf.SetTextColor(0, 0, 255)
+				// Create a clickable external link using the linkStr parameter
+				pdf.CellFormat(width, 8, cell, "1", 0, "C", false, 0, rowData.links[j])
+				
+				// Reset text color to black
+				pdf.SetTextColor(0, 0, 0)
+			} else {
+				// Regular cell without link
+				pdf.CellFormat(width, 8, cell, "1", 0, "C", i == 0, 0, "")
+			}
 		}
 		pdf.Ln(-1)
 	}

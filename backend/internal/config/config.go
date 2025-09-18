@@ -10,6 +10,7 @@ type Config struct {
 	ReportsPath     string
 	MaxNodes        int
 	MaxTransactions int
+	ExplorerBaseURL string
 }
 
 func Load() *Config {
@@ -19,6 +20,7 @@ func Load() *Config {
 		ReportsPath:     getEnv("REPORTS_PATH", "./reports"),
 		MaxNodes:        20,
 		MaxTransactions: 500,
+		ExplorerBaseURL: getEnv("EXPLORER_BASE_URL", "https://testnet.rubixexplorer.com/#/transaction"),
 	}
 }
 
