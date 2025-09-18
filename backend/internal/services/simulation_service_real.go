@@ -181,45 +181,47 @@ func (ss *SimulationService) runSimulation(simulationID string, nodeCount, trans
 	log.Printf("Executing %d real transactions on %d transaction nodes...", transactionCount, transactionNodeCount)
 	
 	// Execute real transactions on real nodes with progress reporting
-	progressCallback := func(completed int, transactions []models.Transaction) {
-		// Update report with current progress
-		ss.updateReport(simulationID, func(report *models.SimulationReport) {
-			report.TransactionsCompleted = completed
-			
-			// Count successes and failures so far
-			successCount := 0
-			failureCount := 0
-			totalLatency := time.Duration(0)
-			totalTokens := float64(0)
-			
-			for i := 0; i < completed && i < len(transactions); i++ {
-				if transactions[i].Status == "success" {
-					successCount++
-					totalTokens += transactions[i].TokenAmount
-				} else if transactions[i].Status == "failed" {
-					failureCount++
+	progressCallback := func(executorCompleted int, transactions []models.Transaction) {
+		// Recompute progress strictly as Success + Failed across the whole slice
+		successCount := 0
+		failureCount := 0
+		totalLatency := time.Duration(0)
+		totalTokens := float64(0)
+		completedTxs := make([]models.Transaction, 0, len(transactions))
+
+		for _, tx := range transactions {
+			if tx.Status == "success" {
+				successCount++
+				totalTokens += tx.TokenAmount
+				if tx.TimeTaken > 0 {
+					totalLatency += tx.TimeTaken
 				}
-				if transactions[i].TimeTaken > 0 {
-					totalLatency += transactions[i].TimeTaken
+				completedTxs = append(completedTxs, tx)
+			} else if tx.Status == "failed" {
+				failureCount++
+				if tx.TimeTaken > 0 {
+					totalLatency += tx.TimeTaken
 				}
+				completedTxs = append(completedTxs, tx)
 			}
-			
+		}
+
+		computedCompleted := successCount + failureCount
+
+		// Update report with recomputed progress and metrics
+		ss.updateReport(simulationID, func(report *models.SimulationReport) {
+			report.TransactionsCompleted = computedCompleted
 			report.SuccessCount = successCount
 			report.FailureCount = failureCount
 			report.TotalTokensTransferred = totalTokens
-			
-			// Calculate average latency for completed transactions
-			if completed > 0 {
-				report.AverageTransactionTime = float64(totalLatency.Milliseconds()) / float64(completed)
+			if computedCompleted > 0 {
+				report.AverageTransactionTime = float64(totalLatency.Milliseconds()) / float64(computedCompleted)
 			}
-			
-			// Store transactions processed so far
-			if completed > 0 && len(transactions) > 0 {
-				report.Transactions = transactions[:completed]
-			}
+			// Store only completed transactions
+			report.Transactions = completedTxs
 		})
-		
-		log.Printf("Progress: %d/%d transactions completed", completed, transactionCount)
+
+		log.Printf("Progress: executor=%d, computed=%d/%d (success=%d, failed=%d)", executorCompleted, computedCompleted, transactionCount, successCount, failureCount)
 	}
 	
 	transactions := ss.transactionExecutor.ExecuteTransactionsWithProgress(nodes, transactionCount, progressCallback)
