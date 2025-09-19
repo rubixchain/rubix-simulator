@@ -1817,6 +1817,13 @@ func (m *Manager) checkAndRefillTokens() {
 
 	log.Printf("🔍 Checking token balances for %d nodes (threshold: %.2f RBT)", len(nodesCopy), m.config.MinTokenBalance)
 	
+	// Debug: Log all node IDs being checked
+	var nodeIDs []string
+	for nodeID := range nodesCopy {
+		nodeIDs = append(nodeIDs, nodeID)
+	}
+	log.Printf("🔍 DEBUG: Nodes being checked: %v", nodeIDs)
+	
 	lowBalanceNodes := 0
 	totalNodesChecked := 0
 	totalRefillAttempts := 0
