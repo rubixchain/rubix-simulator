@@ -1803,12 +1803,25 @@ func (m *Manager) checkAndRefillTokens() {
 		return
 	}
 
-	m.mu.RLock()
-	nodesCopy := make(map[string]*NodeInfo)
-	for k, v := range m.nodes {
-		nodesCopy[k] = v
-	}
-	m.mu.RUnlock()
+    // Load all nodes from metadata so monitoring always covers the full fleet
+    nodesCopy := make(map[string]*NodeInfo)
+    if m.nodeMetadataExists() {
+        if metadata, err := m.loadMetadata(); err == nil {
+            for k, v := range metadata {
+                nodesCopy[k] = v
+            }
+        } else {
+            log.Printf("WARNING: Failed to load node metadata for monitoring: %v. Falling back to in-memory nodes.", err)
+        }
+    }
+    // Fallback to in-memory nodes if metadata missing or empty
+    if len(nodesCopy) == 0 {
+        m.mu.RLock()
+        for k, v := range m.nodes {
+            nodesCopy[k] = v
+        }
+        m.mu.RUnlock()
+    }
 
 	if len(nodesCopy) == 0 {
 		log.Printf("No nodes available for token monitoring")
