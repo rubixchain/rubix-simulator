@@ -36,12 +36,16 @@ type NodeInfo struct {
 
 // Manager manages multiple Rubix nodes
 type Manager struct {
-	nodes        map[string]*NodeInfo
-	mu           sync.RWMutex
-	config       *config.RubixConfig
-	dataDir      string
-	metadataFile string
-	rubixPath    string
+	nodes             map[string]*NodeInfo
+	mu                sync.RWMutex
+	config            *config.RubixConfig
+	dataDir           string
+	metadataFile      string
+	rubixPath         string
+	tokenMonitorStop  chan struct{}
+	tokenMonitorDone  chan struct{}
+	simulationActive  bool              // Flag to track if simulation is running
+	simulationMu      sync.RWMutex      // Separate mutex for simulation state
 }
 
 // NewManager creates a new Rubix node manager
@@ -55,11 +59,13 @@ func NewManagerWithConfig(cfg *config.RubixConfig) *Manager {
 	os.MkdirAll(cfg.DataDir, 0o755)
 
 	return &Manager{
-		nodes:        make(map[string]*NodeInfo),
-		config:       cfg,
-		dataDir:      cfg.DataDir,
-		metadataFile: filepath.Join(cfg.DataDir, "node_metadata.json"),
-		rubixPath:    filepath.Join(cfg.DataDir, "rubixgoplatform"),
+		nodes:            make(map[string]*NodeInfo),
+		config:           cfg,
+		dataDir:          cfg.DataDir,
+		metadataFile:     filepath.Join(cfg.DataDir, "node_metadata.json"),
+		rubixPath:        filepath.Join(cfg.DataDir, "rubixgoplatform"),
+		tokenMonitorStop: make(chan struct{}),
+		tokenMonitorDone: make(chan struct{}),
 	}
 }
 
@@ -355,6 +361,10 @@ transactionNodeCount = m.config.MaxTransactionNodes // Always start max nodes
 		log.Printf("✓ All nodes successfully configured and ready!")
 	}
 
+	// Start token monitoring service
+	log.Printf("\n================== PHASE 7: Token Monitoring ==================")
+	m.StartTokenMonitoring()
+
 	return nil
 }
 
@@ -541,6 +551,9 @@ pause > nul`,
 
 // StopAllNodes stops all running nodes
 func (m *Manager) StopAllNodes() error {
+	// Stop token monitoring first
+	m.StopTokenMonitoring()
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -1717,5 +1730,285 @@ func (m *Manager) listDirectoryRecursive(dir string, currentDepth, maxDepth int,
 			}
 			log.Printf("%s[FILE] %s (size: %d bytes)", indent, entry.Name(), size)
 		}
+	}
+}
+
+// StartTokenMonitoring starts the periodic token balance monitoring and generation
+func (m *Manager) StartTokenMonitoring() {
+	if !m.config.TokenMonitoringEnabled {
+		log.Printf("Token monitoring is disabled in configuration")
+		return
+	}
+
+	log.Printf("Starting token monitoring service...")
+	log.Printf("  Monitoring interval: %d minutes", m.config.TokenMonitoringInterval)
+	log.Printf("  Minimum balance threshold: %.2f RBT", m.config.MinTokenBalance)
+	log.Printf("  Refill amount: %d RBT", m.config.TokenRefillAmount)
+
+	go m.tokenMonitoringLoop()
+}
+
+// StopTokenMonitoring stops the token monitoring service
+func (m *Manager) StopTokenMonitoring() {
+	if !m.config.TokenMonitoringEnabled {
+		return
+	}
+
+	log.Printf("Stopping token monitoring service...")
+	close(m.tokenMonitorStop)
+	
+	// Wait for the monitoring loop to finish
+	select {
+	case <-m.tokenMonitorDone:
+		log.Printf("Token monitoring service stopped")
+	case <-time.After(30 * time.Second):
+		log.Printf("Token monitoring service stop timeout")
+	}
+}
+
+// tokenMonitoringLoop runs the periodic token balance checking and generation
+func (m *Manager) tokenMonitoringLoop() {
+	defer close(m.tokenMonitorDone)
+	
+	interval := time.Duration(m.config.TokenMonitoringInterval) * time.Minute
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	log.Printf("Token monitoring loop started with %v interval", interval)
+
+	// Initial check after a short delay to let the system settle
+	time.Sleep(30 * time.Second)
+	m.checkAndRefillTokens()
+
+	for {
+		select {
+		case <-ticker.C:
+			m.checkAndRefillTokens()
+		case <-m.tokenMonitorStop:
+			log.Printf("Token monitoring loop received stop signal")
+			return
+		}
+	}
+}
+
+// checkAndRefillTokens checks all node balances and refills if below threshold
+func (m *Manager) checkAndRefillTokens() {
+	// Check if simulation is active before proceeding
+	m.simulationMu.RLock()
+	simActive := m.simulationActive
+	m.simulationMu.RUnlock()
+	
+	if simActive {
+		log.Printf("🔍 Token balance check skipped - simulation is currently active")
+		return
+	}
+
+    // Load all nodes from metadata so monitoring always covers the full fleet
+    nodesCopy := make(map[string]*NodeInfo)
+    if m.nodeMetadataExists() {
+        if metadata, err := m.loadMetadata(); err == nil {
+            for k, v := range metadata {
+                nodesCopy[k] = v
+            }
+        } else {
+            log.Printf("WARNING: Failed to load node metadata for monitoring: %v. Falling back to in-memory nodes.", err)
+        }
+    }
+    // Fallback to in-memory nodes if metadata missing or empty
+    if len(nodesCopy) == 0 {
+        m.mu.RLock()
+        for k, v := range m.nodes {
+            nodesCopy[k] = v
+        }
+        m.mu.RUnlock()
+    }
+
+	if len(nodesCopy) == 0 {
+		log.Printf("No nodes available for token monitoring")
+		return
+	}
+
+	log.Printf("🔍 Checking token balances for %d nodes (threshold: %.2f RBT)", len(nodesCopy), m.config.MinTokenBalance)
+	
+	// Debug: Log all node IDs being checked
+	var nodeIDs []string
+	for nodeID := range nodesCopy {
+		nodeIDs = append(nodeIDs, nodeID)
+	}
+	log.Printf("🔍 DEBUG: Nodes being checked: %v", nodeIDs)
+	
+	lowBalanceNodes := 0
+	totalNodesChecked := 0
+	totalRefillAttempts := 0
+	successfulRefills := 0
+
+	for nodeID, nodeInfo := range nodesCopy {
+		if nodeInfo.DID == "" {
+			continue
+		}
+
+		totalNodesChecked++
+		client := NewClient(nodeInfo.ServerPort)
+		
+		// Check current balance
+		balance, err := client.GetAccountBalance(nodeInfo.DID)
+		if err != nil {
+			log.Printf("  ⚠ Failed to check balance for %s: %v", nodeID, err)
+			continue
+		}
+
+		nodeType := "transaction"
+		if nodeInfo.IsQuorum {
+			nodeType = "quorum"
+		}
+
+		if balance < m.config.MinTokenBalance {
+			lowBalanceNodes++
+			log.Printf("  💰 %s (%s): %.2f RBT (below threshold, refilling...)", nodeID, nodeType, balance)
+			
+			totalRefillAttempts++
+			if m.refillNodeTokens(nodeID, nodeInfo, balance) {
+				successfulRefills++
+			}
+		} else {
+			log.Printf("  ✓ %s (%s): %.2f RBT (sufficient)", nodeID, nodeType, balance)
+		}
+	}
+
+	// Summary log
+	if lowBalanceNodes > 0 {
+		log.Printf("Token monitoring summary: %d/%d nodes below threshold, %d/%d refills successful", 
+			lowBalanceNodes, totalNodesChecked, successfulRefills, totalRefillAttempts)
+	} else {
+		log.Printf("Token monitoring summary: All %d nodes have sufficient balance (>= %.2f RBT)", 
+			totalNodesChecked, m.config.MinTokenBalance)
+	}
+}
+
+// refillNodeTokens generates tokens for a specific node
+func (m *Manager) refillNodeTokens(nodeID string, nodeInfo *NodeInfo, currentBalance float64) bool {
+	client := NewClient(nodeInfo.ServerPort)
+	
+	log.Printf("    Generating %d tokens for %s (current: %.2f RBT)...", 
+		m.config.TokenRefillAmount, nodeID, currentBalance)
+
+	maxRetries := 3
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		if attempt > 1 {
+			log.Printf("    Retry %d/%d for %s...", attempt, maxRetries, nodeID)
+			time.Sleep(time.Duration(attempt) * time.Second) // Progressive backoff
+		}
+
+		// Generate tokens
+		err := client.GenerateTestTokens(nodeInfo.DID, m.config.TokenRefillAmount, m.config.DefaultPrivKeyPassword)
+		if err != nil {
+			log.Printf("    ✗ Failed to generate tokens for %s (attempt %d): %v", nodeID, attempt, err)
+			if attempt == maxRetries {
+				return false
+			}
+			continue
+		}
+
+		// Verify tokens were generated by checking balance again
+		time.Sleep(5 * time.Second) // Wait for async operation
+		newBalance, err := client.GetAccountBalance(nodeInfo.DID)
+		if err != nil {
+			log.Printf("    ⚠ Failed to verify new balance for %s: %v", nodeID, err)
+			if attempt == maxRetries {
+				return false
+			}
+			continue
+		}
+
+		if newBalance > currentBalance {
+			log.Printf("    ✓ Successfully refilled %s: %.2f RBT → %.2f RBT (+%.2f)", 
+				nodeID, currentBalance, newBalance, newBalance-currentBalance)
+			return true
+		} else {
+			log.Printf("    ⚠ Balance unchanged for %s after token generation (%.2f RBT)", nodeID, newBalance)
+			if attempt == maxRetries {
+				return false
+			}
+		}
+	}
+
+	return false
+}
+
+// CheckBalancesNow performs an immediate balance check and refill if needed
+// This can be called manually for testing or on-demand token management
+func (m *Manager) CheckBalancesNow() {
+	if !m.config.TokenMonitoringEnabled {
+		log.Printf("Token monitoring is disabled, skipping balance check")
+		return
+	}
+	
+	// Check if simulation is active
+	m.simulationMu.RLock()
+	simActive := m.simulationActive
+	m.simulationMu.RUnlock()
+	
+	if simActive {
+		log.Printf("🔍 Manual token balance check skipped - simulation is active")
+		return
+	}
+	
+	log.Printf("🔍 Manual token balance check requested...")
+	m.checkAndRefillTokens()
+}
+
+// SetSimulationActive sets the simulation state to control token monitoring
+func (m *Manager) SetSimulationActive(active bool) {
+	m.simulationMu.Lock()
+	defer m.simulationMu.Unlock()
+	
+	if m.simulationActive != active {
+		m.simulationActive = active
+		if active {
+			log.Printf("🚫 Token monitoring paused - simulation started")
+		} else {
+			log.Printf("✅ Token monitoring resumed - simulation completed")
+		}
+	}
+}
+
+// IsSimulationActive returns whether a simulation is currently running
+func (m *Manager) IsSimulationActive() bool {
+	m.simulationMu.RLock()
+	defer m.simulationMu.RUnlock()
+	return m.simulationActive
+}
+
+// AutoStartTokenMonitoring automatically starts token monitoring if nodes already exist
+func (m *Manager) AutoStartTokenMonitoring() {
+	if !m.config.TokenMonitoringEnabled {
+		log.Printf("Token monitoring is disabled in configuration")
+		return
+	}
+
+	// Check if nodes already exist (from previous startup)
+	if m.nodeMetadataExists() {
+		log.Printf("Existing node metadata found, loading nodes...")
+		metadata, err := m.loadMetadata()
+		if err != nil {
+			log.Printf("Failed to load existing metadata: %v", err)
+			return
+		}
+
+		// Load nodes into manager
+		m.mu.Lock()
+		m.nodes = metadata
+		m.mu.Unlock()
+
+		nodeCount := len(metadata)
+		if nodeCount > 0 {
+			log.Printf("Loaded %d existing nodes from metadata", nodeCount)
+			log.Printf("Auto-starting token monitoring service...")
+			m.StartTokenMonitoring()
+		} else {
+			log.Printf("No existing nodes found in metadata")
+		}
+	} else {
+		log.Printf("No existing node metadata found - token monitoring will start when nodes are created")
 	}
 }

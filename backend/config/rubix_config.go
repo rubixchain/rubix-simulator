@@ -27,6 +27,13 @@ type RubixConfig struct {
 	// Default passwords (for testing only)
 	DefaultPrivKeyPassword   string `json:"defaultPrivKeyPassword"`
 	DefaultQuorumKeyPassword string `json:"defaultQuorumKeyPassword"`
+	
+	// Token monitoring configuration
+	TokenMonitoringEnabled    bool    `json:"tokenMonitoringEnabled"`    // Enable/disable automatic token monitoring
+	TokenMonitoringInterval   int     `json:"tokenMonitoringInterval"`   // Minutes between balance checks
+	MinTokenBalance          float64 `json:"minTokenBalance"`           // Minimum balance threshold (RBT)
+	TokenRefillAmount        int     `json:"tokenRefillAmount"`         // Amount to generate when below threshold
+	// Note: Token monitoring automatically pauses during active simulations to avoid interfering with transaction results
 }
 
 // DefaultRubixConfig returns the default configuration
@@ -46,5 +53,11 @@ func DefaultRubixConfig() *RubixConfig {
 		TestSwarmKeyURL:     "https://raw.githubusercontent.com/rubixchain/rubixgoplatform/main/testswarm.key",
 		DefaultPrivKeyPassword:   "mypassword",
 		DefaultQuorumKeyPassword: "mypassword",
+		
+		// Token monitoring defaults
+		TokenMonitoringEnabled:  true,
+		TokenMonitoringInterval: 10,     // 10 minutes
+		MinTokenBalance:        1000.0,  // 1000 RBT threshold
+		TokenRefillAmount:      100,     // Generate 100 tokens when below threshold
 	}
 }

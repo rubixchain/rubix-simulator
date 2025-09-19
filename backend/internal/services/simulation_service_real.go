@@ -1,8 +1,11 @@
 package services
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -18,16 +21,27 @@ type SimulationService struct {
 	mu                  sync.RWMutex
 	isSimulationRunning bool
 	simMu               sync.Mutex // Mutex for isSimulationRunning flag
+	persistenceDir      string    // Directory to store simulation state
 }
 
 func NewSimulationService(nm *NodeManager, te *TransactionExecutor, rg *ReportGenerator) *SimulationService {
-	return &SimulationService{
+	// Create persistence directory
+	persistenceDir := "simulation-state"
+	os.MkdirAll(persistenceDir, 0755)
+	
+	ss := &SimulationService{
 		nodeManager:         nm,
 		transactionExecutor: te,
 		reportGenerator:     rg,
 		simulations:         make(map[string]*models.SimulationReport),
 		isSimulationRunning: false,
+		persistenceDir:      persistenceDir,
 	}
+	
+	// Load existing simulations from disk
+	ss.loadSimulationsFromDisk()
+	
+	return ss
 }
 
 func (ss *SimulationService) GetNodeManager() *NodeManager {
@@ -40,18 +54,24 @@ func (ss *SimulationService) StartSimulation(nodeCount, transactionCount int) (s
 		ss.simMu.Unlock()
 		return "", fmt.Errorf("All servers are busy, please try again after some time.")
 	}
-	ss.isSimulationRunning = true
-	ss.simMu.Unlock()
-
+	// Validate parameters before marking simulation as running
 	// nodeCount represents additional non-quorum nodes beyond the 7 quorum nodes
 	// Minimum 2 non-quorum nodes required for transactions
 	if nodeCount < 2 || nodeCount > 20 {
+		ss.simMu.Unlock()
 		return "", fmt.Errorf("non-quorum node count must be between 2 and 20 (need at least 2 for sender/receiver)")
 	}
 	
 	if transactionCount < 1 || transactionCount > 500 {
+		ss.simMu.Unlock()
 		return "", fmt.Errorf("transaction count must be between 1 and 500")
 	}
+
+	ss.isSimulationRunning = true
+	ss.simMu.Unlock()
+
+	// Pause token monitoring during simulation
+	ss.nodeManager.SetSimulationActive(true)
 
 	simulationID := uuid.New().String()
 	
@@ -80,9 +100,21 @@ func (ss *SimulationService) StartSimulation(nodeCount, transactionCount int) (s
 
 func (ss *SimulationService) runSimulation(simulationID string, nodeCount, transactionCount int) {
 	defer func() {
+		// Handle any panic to ensure simulation state is cleaned up
+		if r := recover(); r != nil {
+			log.Printf("ERROR: Simulation %s panicked: %v", simulationID, r)
+			ss.updateReport(simulationID, func(report *models.SimulationReport) {
+				report.IsFinished = true
+				report.Error = fmt.Sprintf("Simulation panicked: %v", r)
+			})
+		}
+		
 		ss.simMu.Lock()
 		ss.isSimulationRunning = false
 		ss.simMu.Unlock()
+		
+		// Resume token monitoring after simulation completes (even if it panicked)
+		ss.nodeManager.SetSimulationActive(false)
 	}()
 
 	// Safely truncate ID for logging
@@ -163,45 +195,47 @@ func (ss *SimulationService) runSimulation(simulationID string, nodeCount, trans
 	log.Printf("Executing %d real transactions on %d transaction nodes...", transactionCount, transactionNodeCount)
 	
 	// Execute real transactions on real nodes with progress reporting
-	progressCallback := func(completed int, transactions []models.Transaction) {
-		// Update report with current progress
-		ss.updateReport(simulationID, func(report *models.SimulationReport) {
-			report.TransactionsCompleted = completed
-			
-			// Count successes and failures so far
-			successCount := 0
-			failureCount := 0
-			totalLatency := time.Duration(0)
-			totalTokens := float64(0)
-			
-			for i := 0; i < completed && i < len(transactions); i++ {
-				if transactions[i].Status == "success" {
-					successCount++
-					totalTokens += transactions[i].TokenAmount
-				} else if transactions[i].Status == "failed" {
-					failureCount++
+	progressCallback := func(executorCompleted int, transactions []models.Transaction) {
+		// Recompute progress strictly as Success + Failed across the whole slice
+		successCount := 0
+		failureCount := 0
+		totalLatency := time.Duration(0)
+		totalTokens := float64(0)
+		completedTxs := make([]models.Transaction, 0, len(transactions))
+
+		for _, tx := range transactions {
+			if tx.Status == "success" {
+				successCount++
+				totalTokens += tx.TokenAmount
+				if tx.TimeTaken > 0 {
+					totalLatency += tx.TimeTaken
 				}
-				if transactions[i].TimeTaken > 0 {
-					totalLatency += transactions[i].TimeTaken
+				completedTxs = append(completedTxs, tx)
+			} else if tx.Status == "failed" {
+				failureCount++
+				if tx.TimeTaken > 0 {
+					totalLatency += tx.TimeTaken
 				}
+				completedTxs = append(completedTxs, tx)
 			}
-			
+		}
+
+		computedCompleted := successCount + failureCount
+
+		// Update report with recomputed progress and metrics
+		ss.updateReport(simulationID, func(report *models.SimulationReport) {
+			report.TransactionsCompleted = computedCompleted
 			report.SuccessCount = successCount
 			report.FailureCount = failureCount
 			report.TotalTokensTransferred = totalTokens
-			
-			// Calculate average latency for completed transactions
-			if completed > 0 {
-				report.AverageTransactionTime = float64(totalLatency.Milliseconds()) / float64(completed)
+			if computedCompleted > 0 {
+				report.AverageTransactionTime = float64(totalLatency.Milliseconds()) / float64(computedCompleted)
 			}
-			
-			// Store transactions processed so far
-			if completed > 0 && len(transactions) > 0 {
-				report.Transactions = transactions[:completed]
-			}
+			// Store only completed transactions
+			report.Transactions = completedTxs
 		})
-		
-		log.Printf("Progress: %d/%d transactions completed", completed, transactionCount)
+
+		log.Printf("Progress: executor=%d, computed=%d/%d (success=%d, failed=%d)", executorCompleted, computedCompleted, transactionCount, successCount, failureCount)
 	}
 	
 	transactions := ss.transactionExecutor.ExecuteTransactionsWithProgress(nodes, transactionCount, progressCallback)
@@ -348,5 +382,85 @@ func (ss *SimulationService) updateReport(simulationID string, updateFunc func(*
 	
 	if report, exists := ss.simulations[simulationID]; exists {
 		updateFunc(report)
+		// Persist the updated report to disk
+		ss.persistSimulationToDisk(report)
+	}
+}
+
+// persistSimulationToDisk saves a simulation report to disk
+func (ss *SimulationService) persistSimulationToDisk(report *models.SimulationReport) {
+	filePath := filepath.Join(ss.persistenceDir, report.SimulationID+".json")
+	
+	data, err := json.MarshalIndent(report, "", "  ")
+	if err != nil {
+		log.Printf("ERROR: Failed to marshal simulation report %s: %v", report.SimulationID, err)
+		return
+	}
+	
+	err = os.WriteFile(filePath, data, 0644)
+	if err != nil {
+		log.Printf("ERROR: Failed to persist simulation report %s: %v", report.SimulationID, err)
+	}
+}
+
+// loadSimulationsFromDisk loads all simulation reports from disk
+func (ss *SimulationService) loadSimulationsFromDisk() {
+	files, err := filepath.Glob(filepath.Join(ss.persistenceDir, "*.json"))
+	if err != nil {
+		log.Printf("ERROR: Failed to list simulation files: %v", err)
+		return
+	}
+	
+	for _, file := range files {
+		data, err := os.ReadFile(file)
+		if err != nil {
+			log.Printf("ERROR: Failed to read simulation file %s: %v", file, err)
+			continue
+		}
+		
+		var report models.SimulationReport
+		if err := json.Unmarshal(data, &report); err != nil {
+			log.Printf("ERROR: Failed to unmarshal simulation file %s: %v", file, err)
+			continue
+		}
+		
+		ss.simulations[report.SimulationID] = &report
+		log.Printf("Loaded simulation %s from disk (finished: %v)", report.SimulationID, report.IsFinished)
+	}
+	
+	log.Printf("Loaded %d simulations from disk", len(ss.simulations))
+}
+
+// GetActiveSimulations returns all non-finished simulations
+func (ss *SimulationService) GetActiveSimulations() []*models.SimulationReport {
+	ss.mu.RLock()
+	defer ss.mu.RUnlock()
+	
+	var activeSimulations []*models.SimulationReport
+	for _, report := range ss.simulations {
+		if !report.IsFinished {
+			activeSimulations = append(activeSimulations, report)
+		}
+	}
+	
+	return activeSimulations
+}
+
+// CleanupFinishedSimulations removes finished simulations from memory and disk
+func (ss *SimulationService) CleanupFinishedSimulations() {
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+	
+	for id, report := range ss.simulations {
+		if report.IsFinished {
+			// Remove from memory
+			delete(ss.simulations, id)
+			
+			// Remove from disk
+			filePath := filepath.Join(ss.persistenceDir, id+".json")
+			if err := os.Remove(filePath); err != nil {
+				log.Printf("WARNING: Failed to remove simulation file %s: %v", filePath, err)
+			}
+		}
 	}
 }

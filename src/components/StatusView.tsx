@@ -75,6 +75,8 @@ export const StatusView = ({ simulationId, onBack }: StatusViewProps) => {
           setIsPolling(false);
         } else if (data.isFinished) {
           setIsPolling(false);
+          // Clear localStorage when simulation finishes
+          localStorage.removeItem("currentSimulationId");
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : "An error occurred");

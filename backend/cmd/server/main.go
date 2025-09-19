@@ -28,6 +28,20 @@ func main() {
 
 	handler := handlers.NewHandler(simulationService, reportGenerator)
 
+	// Auto-start token monitoring if nodes already exist
+	nodeManager.AutoStartTokenMonitoring()
+
+	// Optional: Start cleanup routine for very old finished simulations
+	// (commented out by default - users might want to keep finished reports)
+	// go func() {
+	// 	ticker := time.NewTicker(1 * time.Hour) // Clean up every hour
+	// 	defer ticker.Stop()
+	// 	
+	// 	for range ticker.C {
+	// 		simulationService.CleanupFinishedSimulations()
+	// 	}
+	// }()
+
 	router := setupRouter(handler)
 
 	c := cors.New(cors.Options{
@@ -61,6 +75,8 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
+	// NOTE: Nodes are intentionally NOT stopped when server shuts down
+	// This allows nodes to continue running independently of the backend server
 	// if err := nodeManager.StopAllNodes(); err != nil {
 	// 	log.Printf("Error stopping nodes: %v", err)
 	// }
@@ -82,10 +98,13 @@ func setupRouter(h *handlers.Handler) *mux.Router {
 	r.HandleFunc("/nodes/stop", h.StopNodes).Methods("POST")
 	r.HandleFunc("/nodes/restart", h.RestartNodes).Methods("POST")
 	r.HandleFunc("/nodes/reset", h.ResetNodes).Methods("POST")
+	r.HandleFunc("/nodes/check-tokens", h.CheckTokenBalances).Methods("POST")
+	r.HandleFunc("/nodes/token-status", h.GetTokenMonitoringStatus).Methods("GET")
 
 	// Simulation endpoints
 	r.HandleFunc("/simulate", h.StartSimulation).Methods("POST")
 	r.HandleFunc("/report/{id}", h.GetSimulationStatus).Methods("GET")
+	r.HandleFunc("/simulations/active", h.GetActiveSimulations).Methods("GET")
 
 	// Report endpoints
 	r.HandleFunc("/reports/{id}/download", h.DownloadReport).Methods("GET")

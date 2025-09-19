@@ -241,3 +241,32 @@ func (nm *NodeManager) GetAvailableNodes(count int) ([]*models.Node, error) {
 
 	return availableNodes[:count], nil
 }
+
+// CheckTokenBalances triggers an immediate token balance check for all nodes
+func (nm *NodeManager) CheckTokenBalances() {
+	if nm.rubixManager != nil {
+		nm.rubixManager.CheckBalancesNow()
+	}
+}
+
+// AutoStartTokenMonitoring automatically starts token monitoring if nodes already exist
+func (nm *NodeManager) AutoStartTokenMonitoring() {
+	if nm.rubixManager != nil {
+		nm.rubixManager.AutoStartTokenMonitoring()
+	}
+}
+
+// SetSimulationActive controls whether token monitoring should be paused during simulations
+func (nm *NodeManager) SetSimulationActive(active bool) {
+	if nm.rubixManager != nil {
+		nm.rubixManager.SetSimulationActive(active)
+	}
+}
+
+// IsSimulationActive returns whether a simulation is currently running
+func (nm *NodeManager) IsSimulationActive() bool {
+	if nm.rubixManager != nil {
+		return nm.rubixManager.IsSimulationActive()
+	}
+	return false
+}
