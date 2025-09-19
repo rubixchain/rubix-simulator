@@ -73,30 +73,54 @@ class NodeInfo:
         )
 
 class RubixClient:
-    """HTTP client for communicating with Rubix nodes"""
+    """Client utilities for communicating with Rubix nodes"""
     
-    def __init__(self, base_url: str):
+    def __init__(self, base_url: str, node_dir: Optional[str] = None):
         self.base_url = base_url
+        self.node_dir = node_dir
         self.session = requests.Session()
         self.session.timeout = 30
 
     def wait_for_node(self, timeout: int = 120) -> bool:
-        """Wait for node to be ready"""
-        logger.info(f"  Waiting for node at {self.base_url} to be ready (timeout: {timeout}s)...")
-        
+        """Wait for node to be ready using rubixgoplatform getalldid only."""
+        # Derive port from base_url
+        try:
+            port_str = self.base_url.rsplit(":", 1)[-1]
+            port = int(port_str)
+        except Exception:
+            logger.error(f"  ✗ Could not parse port from {self.base_url}")
+            return False
+
+        if not self.node_dir:
+            logger.error("  ✗ Node directory not provided; cannot run getalldid")
+            return False
+
+        logger.info(f"  Waiting for node (CLI getalldid) on port {port} (timeout: {timeout}s)...")
         start_time = time.time()
         while time.time() - start_time < timeout:
             try:
-                response = self.session.get(f"{self.base_url}/api/basic-info")
-                if response.status_code == 200:
-                    logger.info(f"  ✓ Node at {self.base_url} is ready")
+                # Choose executable per platform
+                exe = "rubixgoplatform.exe" if platform.system() == "Windows" else "./rubixgoplatform"
+                cmd = [exe, "getalldid", "-port", str(port)]
+                result = subprocess.run(
+                    cmd,
+                    cwd=self.node_dir,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                )
+
+                out = result.stdout or ""
+                if result.returncode == 0 and ("Got all DID successfully" in out or "Address :" in out):
+                    logger.info(f"  ✓ Node at port {port} is ready (getalldid)")
                     return True
-            except requests.exceptions.RequestException:
+            except Exception:
+                # Ignore and retry
                 pass
-            
+
             time.sleep(2)
-        
-        logger.error(f"  ✗ Node at {self.base_url} failed to start within {timeout}s")
+
+        logger.error(f"  ✗ Node at port {port} failed to start within {timeout}s (getalldid)")
         return False
 
     def register_did(self, did: str, password: str) -> bool:
@@ -295,8 +319,10 @@ class RubixRestartManager:
                 logger.error(f"  ✗ ERROR: Failed to start {node_id}")
                 return False
             
-            # Wait for node to be ready
-            client = RubixClient(f"http://localhost:{node_info.server_port}")
+            # Wait for node to be ready (prefer CLI getalldid in node directory)
+            abs_data_dir = os.path.abspath(str(self.data_dir))
+            node_dir = os.path.join(abs_data_dir, "nodes", node_info.id)
+            client = RubixClient(f"http://localhost:{node_info.server_port}", node_dir=node_dir)
             if not client.wait_for_node(self.config.node_startup_timeout):
                 logger.error(f"  ✗ ERROR: {node_id} failed to become ready")
                 return False
