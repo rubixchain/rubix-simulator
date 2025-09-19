@@ -1,8 +1,11 @@
 package services
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -18,16 +21,27 @@ type SimulationService struct {
 	mu                  sync.RWMutex
 	isSimulationRunning bool
 	simMu               sync.Mutex // Mutex for isSimulationRunning flag
+	persistenceDir      string    // Directory to store simulation state
 }
 
 func NewSimulationService(nm *NodeManager, te *TransactionExecutor, rg *ReportGenerator) *SimulationService {
-	return &SimulationService{
+	// Create persistence directory
+	persistenceDir := "simulation-state"
+	os.MkdirAll(persistenceDir, 0755)
+	
+	ss := &SimulationService{
 		nodeManager:         nm,
 		transactionExecutor: te,
 		reportGenerator:     rg,
 		simulations:         make(map[string]*models.SimulationReport),
 		isSimulationRunning: false,
+		persistenceDir:      persistenceDir,
 	}
+	
+	// Load existing simulations from disk
+	ss.loadSimulationsFromDisk()
+	
+	return ss
 }
 
 func (ss *SimulationService) GetNodeManager() *NodeManager {
@@ -368,5 +382,85 @@ func (ss *SimulationService) updateReport(simulationID string, updateFunc func(*
 	
 	if report, exists := ss.simulations[simulationID]; exists {
 		updateFunc(report)
+		// Persist the updated report to disk
+		ss.persistSimulationToDisk(report)
+	}
+}
+
+// persistSimulationToDisk saves a simulation report to disk
+func (ss *SimulationService) persistSimulationToDisk(report *models.SimulationReport) {
+	filePath := filepath.Join(ss.persistenceDir, report.SimulationID+".json")
+	
+	data, err := json.MarshalIndent(report, "", "  ")
+	if err != nil {
+		log.Printf("ERROR: Failed to marshal simulation report %s: %v", report.SimulationID, err)
+		return
+	}
+	
+	err = os.WriteFile(filePath, data, 0644)
+	if err != nil {
+		log.Printf("ERROR: Failed to persist simulation report %s: %v", report.SimulationID, err)
+	}
+}
+
+// loadSimulationsFromDisk loads all simulation reports from disk
+func (ss *SimulationService) loadSimulationsFromDisk() {
+	files, err := filepath.Glob(filepath.Join(ss.persistenceDir, "*.json"))
+	if err != nil {
+		log.Printf("ERROR: Failed to list simulation files: %v", err)
+		return
+	}
+	
+	for _, file := range files {
+		data, err := os.ReadFile(file)
+		if err != nil {
+			log.Printf("ERROR: Failed to read simulation file %s: %v", file, err)
+			continue
+		}
+		
+		var report models.SimulationReport
+		if err := json.Unmarshal(data, &report); err != nil {
+			log.Printf("ERROR: Failed to unmarshal simulation file %s: %v", file, err)
+			continue
+		}
+		
+		ss.simulations[report.SimulationID] = &report
+		log.Printf("Loaded simulation %s from disk (finished: %v)", report.SimulationID, report.IsFinished)
+	}
+	
+	log.Printf("Loaded %d simulations from disk", len(ss.simulations))
+}
+
+// GetActiveSimulations returns all non-finished simulations
+func (ss *SimulationService) GetActiveSimulations() []*models.SimulationReport {
+	ss.mu.RLock()
+	defer ss.mu.RUnlock()
+	
+	var activeSimulations []*models.SimulationReport
+	for _, report := range ss.simulations {
+		if !report.IsFinished {
+			activeSimulations = append(activeSimulations, report)
+		}
+	}
+	
+	return activeSimulations
+}
+
+// CleanupFinishedSimulations removes finished simulations from memory and disk
+func (ss *SimulationService) CleanupFinishedSimulations() {
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+	
+	for id, report := range ss.simulations {
+		if report.IsFinished {
+			// Remove from memory
+			delete(ss.simulations, id)
+			
+			// Remove from disk
+			filePath := filepath.Join(ss.persistenceDir, id+".json")
+			if err := os.Remove(filePath); err != nil {
+				log.Printf("WARNING: Failed to remove simulation file %s: %v", filePath, err)
+			}
+		}
 	}
 }

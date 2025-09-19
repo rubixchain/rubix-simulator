@@ -31,6 +31,17 @@ func main() {
 	// Auto-start token monitoring if nodes already exist
 	nodeManager.AutoStartTokenMonitoring()
 
+	// Optional: Start cleanup routine for very old finished simulations
+	// (commented out by default - users might want to keep finished reports)
+	// go func() {
+	// 	ticker := time.NewTicker(1 * time.Hour) // Clean up every hour
+	// 	defer ticker.Stop()
+	// 	
+	// 	for range ticker.C {
+	// 		simulationService.CleanupFinishedSimulations()
+	// 	}
+	// }()
+
 	router := setupRouter(handler)
 
 	c := cors.New(cors.Options{
@@ -93,6 +104,7 @@ func setupRouter(h *handlers.Handler) *mux.Router {
 	// Simulation endpoints
 	r.HandleFunc("/simulate", h.StartSimulation).Methods("POST")
 	r.HandleFunc("/report/{id}", h.GetSimulationStatus).Methods("GET")
+	r.HandleFunc("/simulations/active", h.GetActiveSimulations).Methods("GET")
 
 	// Report endpoints
 	r.HandleFunc("/reports/{id}/download", h.DownloadReport).Methods("GET")

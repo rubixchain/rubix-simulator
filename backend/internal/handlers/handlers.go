@@ -214,6 +214,17 @@ func (h *Handler) GetTokenMonitoringStatus(w http.ResponseWriter, r *http.Reques
 	})
 }
 
+func (h *Handler) GetActiveSimulations(w http.ResponseWriter, r *http.Request) {
+	activeSimulations := h.simulationService.GetActiveSimulations()
+	
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"active_simulations": activeSimulations,
+		"count":              len(activeSimulations),
+		"timestamp":          time.Now(),
+	})
+}
+
 func (h *Handler) sendError(w http.ResponseWriter, message string, code int) {
 	response := models.ErrorResponse{
 		Error:   http.StatusText(code),
