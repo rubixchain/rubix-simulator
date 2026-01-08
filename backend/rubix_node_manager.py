@@ -40,8 +40,8 @@ class RubixConfig:
     
     def __init__(self):
         self.data_dir = "./rubix-data"
-        self.base_server_port = 20000
-        self.base_grpc_port = 10500
+        self.base_server_port = 25000
+        self.base_grpc_port = 15500
         self.quorum_node_count = 7
         self.min_transaction_nodes = 2
         self.max_transaction_nodes = 20
@@ -357,7 +357,7 @@ class RubixManager:
         quorum_list = []
         
         for i in range(total_nodes):
-            node_id = f"node{i}"
+            node_id = f"node_{self.config.base_server_port}_{i}"
             server_port = self.config.base_server_port + i
             grpc_port = self.config.base_grpc_port + i
             is_quorum = i < self.config.quorum_node_count
@@ -737,7 +737,7 @@ pause > nul"""
         # Select first N transaction nodes
         transaction_nodes_added = 0
         for i in range(self.config.max_transaction_nodes):
-            node_id = f"node{self.config.quorum_node_count + i}"
+            node_id = f"node_{self.config.base_server_port}_{self.config.quorum_node_count + i}"
             if node_id in metadata and transaction_nodes_added < requested_transaction_nodes:
                 node_data = metadata[node_id]
                 node_info = NodeInfo.from_dict(node_data)

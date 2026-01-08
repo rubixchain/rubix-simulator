@@ -69,6 +69,25 @@ func NewManagerWithConfig(cfg *config.RubixConfig) *Manager {
 	}
 }
 
+// extractNodeIndex extracts the node index from a node ID
+// Handles both old format (node0) and new format (node_25000_0)
+func extractNodeIndex(nodeID string) int {
+	var index int
+
+	// Try new format first: node_{port}_{index}
+	if strings.Contains(nodeID, "_") {
+		parts := strings.Split(nodeID, "_")
+		if len(parts) == 3 {
+			fmt.Sscanf(parts[2], "%d", &index)
+			return index
+		}
+	}
+
+	// Fall back to old format: node{index}
+	fmt.Sscanf(nodeID, "node%d", &index)
+	return index
+}
+
 // StartNodes starts the specified number of nodes
 func (m *Manager) StartNodes(transactionNodeCount int, fresh bool) error {
 	m.mu.Lock()
@@ -113,7 +132,7 @@ transactionNodeCount = m.config.MaxTransactionNodes // Always start max nodes
 		totalNodes, m.config.QuorumNodeCount, totalNodes-m.config.QuorumNodeCount)
 
 	for i := 0; i < totalNodes; i++ {
-		nodeID := fmt.Sprintf("node%d", i)
+		nodeID := fmt.Sprintf("node_%d_%d", m.config.BaseServerPort, i)
 		serverPort := m.config.BaseServerPort + i
 		grpcPort := m.config.BaseGrpcPort + i
 		isQuorum := i < m.config.QuorumNodeCount
@@ -615,8 +634,7 @@ func (m *Manager) restartExistingNodes() error {
 	// Restart nodes with retry logic
 	var failedNodes []string
 	for nodeID, nodeInfo := range metadata {
-		index := 0
-		fmt.Sscanf(nodeID, "node%d", &index)
+		index := extractNodeIndex(nodeID)
 
 		// Try to restart with retries
 		var lastErr error
@@ -694,7 +712,7 @@ func (m *Manager) adjustNodeCount(requestedTransactionNodes int) error {
 	// Select the first N transaction nodes
 	transactionNodesAdded := 0
 	for i := 0; i < m.config.MaxTransactionNodes; i++ {
-		nodeID := fmt.Sprintf("node%d", m.config.QuorumNodeCount+i)
+		nodeID := fmt.Sprintf("node_%d_%d", m.config.BaseServerPort, m.config.QuorumNodeCount+i)
 		if nodeInfo, exists := metadata[nodeID]; exists {
 			if !nodeInfo.IsQuorum && transactionNodesAdded < requestedTransactionNodes {
 				m.nodes[nodeID] = nodeInfo
@@ -718,8 +736,7 @@ func (m *Manager) addTransactionNodes(additionalCount int) error {
 	// Find the highest node index to continue numbering from there
 	highestIndex := -1
 	for nodeID := range m.nodes {
-		var index int
-		fmt.Sscanf(nodeID, "node%d", &index)
+		index := extractNodeIndex(nodeID)
 		if index > highestIndex {
 			highestIndex = index
 		}
@@ -740,7 +757,7 @@ func (m *Manager) addTransactionNodes(additionalCount int) error {
 	newNodes := make([]*NodeInfo, 0)
 	for i := 0; i < additionalCount; i++ {
 		nodeIndex := highestIndex + 1 + i
-		nodeID := fmt.Sprintf("node%d", nodeIndex)
+		nodeID := fmt.Sprintf("node_%d_%d", m.config.BaseServerPort, nodeIndex)
 		serverPort := m.config.BaseServerPort + nodeIndex
 		grpcPort := m.config.BaseGrpcPort + nodeIndex
 
@@ -890,8 +907,7 @@ func (m *Manager) RestartNodes(nodeIDs []string) error {
 		}
 
 		// Extract index from nodeID
-		index := 0
-		fmt.Sscanf(nodeID, "node%d", &index)
+		index := extractNodeIndex(nodeID)
 
 		// Restart the node
 		if err := m.startNodeProcess(nodeID, index); err != nil {
@@ -954,8 +970,7 @@ func (m *Manager) RecoverNode(nodeID string) error {
 	}
 
 	// Extract index from nodeID
-	index := 0
-	fmt.Sscanf(nodeID, "node%d", &index)
+	index := extractNodeIndex(nodeID)
 
 	// Restart the node
 	if err := m.startNodeProcess(nodeID, index); err != nil {

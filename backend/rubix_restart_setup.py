@@ -37,8 +37,8 @@ class RubixConfig:
     
     def __init__(self):
         self.data_dir = "./rubix-data"
-        self.base_server_port = 20000
-        self.base_grpc_port = 10500
+        self.base_server_port = 25000
+        self.base_grpc_port = 15500
         self.quorum_node_count = 7
         self.node_startup_timeout = 120  # seconds
         self.default_priv_key_password = "mypassword"
@@ -579,9 +579,14 @@ class RubixRestartManager:
     def _start_node_process(self, node_info: NodeInfo) -> bool:
         """Start a single node process using existing binaries in node directory"""
         
-        # Extract node index from ID (e.g., "node0" -> 0)
+        # Extract node index from ID (e.g., "node_25000_0" -> 0 or "node0" -> 0 for backwards compatibility)
         try:
-            index = int(node_info.id.replace("node", ""))
+            if "_" in node_info.id:
+                # New format: node_{port}_{index}
+                index = int(node_info.id.split("_")[-1])
+            else:
+                # Old format: node{index}
+                index = int(node_info.id.replace("node", ""))
         except ValueError:
             logger.error(f"✗ ERROR: Invalid node ID format: {node_info.id}")
             return False

@@ -40,8 +40,8 @@ type RubixConfig struct {
 func DefaultRubixConfig() *RubixConfig {
 	return &RubixConfig{
 		DataDir:             "./rubix-data",
-		BaseServerPort:      20000,
-		BaseGrpcPort:        10500,
+		BaseServerPort:      25000,
+		BaseGrpcPort:        15500,
 		QuorumNodeCount:     7,
 		MinTransactionNodes: 2,
 		MaxTransactionNodes: 20,
