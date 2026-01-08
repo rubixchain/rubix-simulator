@@ -38,9 +38,9 @@ class RubixConfig:
     
     def __init__(self):
         self.data_dir = "./rubix-data"
-        self.base_server_port = 25000
-        self.base_grpc_port = 15500
-        self.quorum_node_count = 7
+        self.base_server_port = 20100
+        self.base_grpc_port = 10600
+        self.quorum_node_count = 1
         self.node_startup_timeout = 120  # seconds
         self.default_priv_key_password = "mypassword"
         self.default_quorum_key_password = "mypassword"

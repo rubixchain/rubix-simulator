@@ -41,18 +41,18 @@ class RubixConfig:
     
     def __init__(self):
         self.data_dir = "./rubix-data"
-        self.base_server_port = 25000
-        self.base_grpc_port = 15500
-        self.quorum_node_count = 7
+        self.base_server_port = 20100
+        self.base_grpc_port = 10600
+        self.quorum_node_count = 1
         self.min_transaction_nodes = 2
         self.max_transaction_nodes = 20
         self.node_startup_timeout = 120  # seconds
         self.default_priv_key_password = "mypassword"
         self.default_quorum_key_password = "mypassword"
         self.rubix_repo_url = "https://github.com/rubixchain/rubixgoplatform.git"
-        self.rubix_branch = "main"
+        self.rubix_branch = "development"
         self.ipfs_version = "v0.21.0"
-        self.test_swarm_key_url = "https://raw.githubusercontent.com/rubixchain/rubixgoplatform/main/testswarm.key"
+        self.test_swarm_key_url = "https://raw.githubusercontent.com/rubixchain/rubixgoplatform/development/testswarm.key"
 
 class NodeInfo:
     """Node information class matching Go NodeInfo struct"""

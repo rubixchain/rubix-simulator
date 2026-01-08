@@ -40,17 +40,17 @@ type RubixConfig struct {
 func DefaultRubixConfig() *RubixConfig {
 	return &RubixConfig{
 		DataDir:             "./rubix-data",
-		BaseServerPort:      25000,
-		BaseGrpcPort:        15500,
-		QuorumNodeCount:     7,
+		BaseServerPort:      20100,
+		BaseGrpcPort:        10600,
+		QuorumNodeCount:     1,
 		MinTransactionNodes: 2,
 		MaxTransactionNodes: 20,
 		NodeStartupDelay:    40,
 		NodeStartupTimeout:  120,  // Increased to 2 minutes for slower systems
 		RubixRepoURL:        "https://github.com/rubixchain/rubixgoplatform.git",
-		RubixBranch:         "main",
+		RubixBranch:         "development",
 		IPFSVersion:         "v0.21.0",
-		TestSwarmKeyURL:     "https://raw.githubusercontent.com/rubixchain/rubixgoplatform/main/testswarm.key",
+		TestSwarmKeyURL:     "https://raw.githubusercontent.com/rubixchain/rubixgoplatform/development/testswarm.key",
 		DefaultPrivKeyPassword:   "mypassword",
 		DefaultQuorumKeyPassword: "mypassword",
 		

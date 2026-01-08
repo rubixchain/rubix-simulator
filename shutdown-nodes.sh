@@ -3,7 +3,7 @@
 echo "Shutting down Rubix nodes..."
 echo
 
-BASE_PORT=25000
+BASE_PORT=20100
 NODES_DIR="backend/rubix-data/nodes"
 
 # Detect OS and set rubix executable path

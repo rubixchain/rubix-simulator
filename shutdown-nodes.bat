@@ -4,7 +4,7 @@ setlocal enabledelayedexpansion
 echo Shutting down Rubix nodes...
 echo.
 
-set "base_port=25000"
+set "base_port=20100"
 set "nodes_dir=backend\rubix-data\nodes"
 set "rubix_exe=backend\rubix-data\rubixgoplatform\windows\rubixgoplatform.exe"
 

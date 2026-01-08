@@ -27,10 +27,10 @@ func NewNodeManager(cfg *config.Config) *NodeManager {
 		config:       cfg,
 		nodes:        make(map[string]*models.Node),
 		busyNodes:    make(map[string]bool), // New field
-		basePort:     25000,
+		basePort:     20100,
 		usePython:    false, // Use Go implementation by default
 		rubixManager: rubix.NewManager(),
-		quorumNodes:  7,  // Fixed 7 quorum nodes as per requirement
+		quorumNodes:  1,  // Fixed 1 quorum node as per requirement
 	}
 }
 
