@@ -466,10 +466,11 @@ func (m *Manager) startNodeProcess(nodeID string, index int) error {
 	grpcPort := m.config.BaseGrpcPort + index
 
 	// Build args (removed -dir flag)
+	// Node number (-n) starts from 100
 	args := []string{
 		"run",
 		"-p", nodeID,
-		"-n", fmt.Sprintf("%d", index),
+		"-n", fmt.Sprintf("%d", index+100),
 		"-s",
 		"-port", fmt.Sprintf("%d", port),
 		"-testNet",

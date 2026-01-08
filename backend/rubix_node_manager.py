@@ -585,12 +585,13 @@ class RubixManager:
         if not os.path.exists(dest_swarm_key):
             logger.info(f"Copying testswarm.key to {node_dir}")
             shutil.copy2(src_swarm_key, dest_swarm_key)
-        
+
         # Build command arguments
+        # Node number (-n) starts from 100
         args = [
             "run",
             "-p", node_id,
-            "-n", str(index),
+            "-n", str(index + 100),
             "-s",
             "-port", str(port),
             "-testNet",

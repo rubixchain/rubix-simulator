@@ -605,12 +605,13 @@ class RubixRestartManager:
         # NOTE: We don't need build directory for restart!
         # Binaries are already in node directories from previous setup
         # We just verify they exist (done in _verify_node_directories)
-        
+
         # Build command arguments (using ports from metadata)
+        # Node number (-n) starts from 100
         args = [
             "run",
             "-p", node_info.id,
-            "-n", str(index),
+            "-n", str(index + 100),
             "-s",
             "-port", str(node_info.server_port),
             "-testNet",
