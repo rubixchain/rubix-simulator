@@ -19,6 +19,7 @@ import subprocess
 import requests
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+from datetime import datetime
 import logging
 
 # Configure logging
@@ -616,16 +617,22 @@ class RubixRestartManager:
             "-grpcPort", str(node_info.grpc_port)
         ]
         
+        # Create log file with timestamp
+        timestamp = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+        log_filename = f"{node_info.id}-{timestamp}.log"
+        log_file_path = os.path.join(node_dir, log_filename)
+
         # Create platform-specific command
         try:
             if platform.system() == "Windows":
-                # Create batch file
+                # Create batch file with log redirection
                 window_title = f"Rubix Node {node_info.id} - Port {node_info.server_port}"
-                
+
                 batch_content = f"""@echo off
 title {window_title}
 echo Starting {node_info.id} on port {node_info.server_port}...
 echo Node directory: {node_dir}
+echo Log file: {log_filename}
 echo.
 cd /d "{node_dir}"
 if not exist "{rubix_bin}" (
@@ -643,34 +650,36 @@ if not exist "testswarm.key" (
     pause > nul
     exit /b 1
 )
-"{rubix_bin}" {' '.join(args)}
+echo Redirecting output to {log_filename}...
+"{rubix_bin}" {' '.join(args)} > "{log_filename}" 2>&1
 echo.
 echo Node stopped. Press any key to close this window...
 pause > nul"""
-                
+
                 # Write batch file
                 batch_path = self.data_dir / f"node_{node_info.id}.bat"
                 batch_path.write_text(batch_content)
-                
+
                 # Start batch file in new window
                 cmd = ["cmd", "/c", "start", "", str(batch_path)]
-                
+
             else:
-                # Linux/Mac: use tmux session
+                # Linux/Mac: use tmux session with log file redirection
                 session_name = f"rubix-node-{node_info.id}"
-                node_command = f"cd {node_dir} && ./{rubix_bin} {' '.join(args)}"
+                node_command = f"cd {node_dir} && ./{rubix_bin} {' '.join(args)} 2>&1 | tee {log_filename}"
                 cmd = ["tmux", "new-session", "-d", "-s", session_name, node_command]
-            
+
             # Environment variables
             env = os.environ.copy()
             env.update({
                 "RUBIX_NODE_DIR": str(node_dir),
                 "RUBIX_NODE_ID": node_info.id
             })
-            
+
             # Log command details
             logger.info(f"  Starting {node_info.id} from directory: {node_dir}")
             logger.info(f"  Command: {rubix_bin} {' '.join(args)}")
+            logger.info(f"  Log file: {log_file_path}")
             
             # Start process
             process = subprocess.Popen(cmd, env=env)

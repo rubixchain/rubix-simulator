@@ -476,9 +476,14 @@ func (m *Manager) startNodeProcess(nodeID string, index int) error {
 		"-grpcPort", fmt.Sprintf("%d", grpcPort),
 	}
 
+	// Create log file with timestamp
+	timestamp := time.Now().Format("2006-01-02-15-04-05")
+	logFilename := fmt.Sprintf("%s-%s.log", nodeID, timestamp)
+	logFilePath := filepath.Join(nodeDir, logFilename)
+
 	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {
-		// On Windows, create a batch file to run the node in a new window
+		// On Windows, create a batch file to run the node in a new window with log redirection
 		windowTitle := fmt.Sprintf("Rubix Node %s - Port %d", nodeID, port)
 
 		// Create batch file content - run from node directory using local copy
@@ -486,6 +491,7 @@ func (m *Manager) startNodeProcess(nodeID string, index int) error {
 title %s
 echo Starting %s on port %d...
 echo Node directory: %s
+echo Log file: %s
 echo.
 cd /d "%s"
 if not exist "%s" (
@@ -506,7 +512,8 @@ if not exist "testswarm.key" (
     pause > nul
     exit /b 1
 )
-"%s" %s
+echo Redirecting output to %s...
+"%s" %s > "%s" 2>&1
 echo.
 echo Node stopped. Press any key to close this window...
 pause > nul`,
@@ -514,10 +521,13 @@ pause > nul`,
 			nodeID,
 			port,
 			nodeDir,
+			logFilename,
 			nodeDir,
 			rubixBinName,
+			logFilename,
 			rubixBinName,
-			strings.Join(args, " "))
+			strings.Join(args, " "),
+			logFilename)
 
 		// Write batch file
 		batchPath := filepath.Join(m.dataDir, fmt.Sprintf("node_%s.bat", nodeID))
@@ -528,9 +538,9 @@ pause > nul`,
 		// Start the batch file in a new window
 		cmd = exec.Command("cmd", "/c", "start", "", batchPath)
 	} else {
-		// On Linux/Mac, run in a tmux session
+		// On Linux/Mac, run in a tmux session with log file redirection
 		sessionName := fmt.Sprintf("rubix-node-%s", nodeID)
-		nodeCommand := fmt.Sprintf("cd %s && %s %s", nodeDir, filepath.Join(nodeDir, rubixBinName), strings.Join(args, " "))
+		nodeCommand := fmt.Sprintf("cd %s && %s %s 2>&1 | tee %s", nodeDir, filepath.Join(nodeDir, rubixBinName), strings.Join(args, " "), logFilename)
 		cmd = exec.Command("tmux", "new-session", "-d", "-s", sessionName, nodeCommand)
 	}
 
@@ -549,6 +559,7 @@ pause > nul`,
 		rubixBinName,
 		strings.Join(args, " "),
 	)
+	log.Printf("Log file: %s", logFilePath)
 
 	// Start process
 	if err := cmd.Start(); err != nil {
