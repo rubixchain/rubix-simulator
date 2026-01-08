@@ -206,6 +206,13 @@ transactionNodeCount = m.config.MaxTransactionNodes // Always start max nodes
 
 		m.nodes[nodeID] = nodeInfo
 
+		// Save metadata incrementally after each node starts
+		if err := m.saveMetadata(); err != nil {
+			log.Printf("  ⚠ Warning: failed to save metadata after starting %s: %v", nodeID, err)
+		} else {
+			log.Printf("  ✓ Metadata updated with %s", nodeID)
+		}
+
 		if isQuorum {
 			// Add to quorum list
 			log.Printf("  DEBUG: Adding %s to quorum list with DID: '%s' (length: %d)", nodeID, nodeInfo.DID, len(nodeInfo.DID))
@@ -246,6 +253,13 @@ transactionNodeCount = m.config.MaxTransactionNodes // Always start max nodes
 		log.Printf("⚠ WARNING: Not all DIDs registered successfully!")
 	}
 
+	// Save metadata after Phase 2
+	if err := m.saveMetadata(); err != nil {
+		log.Printf("⚠ Warning: failed to save metadata after DID registration: %v", err)
+	} else {
+		log.Printf("✓ Metadata saved after DID registration")
+	}
+
 	// Add quorum list to all nodes
 	log.Printf("\n================== PHASE 3: Quorum Configuration ==================")
 	log.Printf("Building quorum list with %d members:", len(quorumList))
@@ -282,6 +296,13 @@ transactionNodeCount = m.config.MaxTransactionNodes // Always start max nodes
 		}
 	}
 	log.Printf("Quorum configuration complete: %d/%d nodes configured", quorumAddSuccess, len(m.nodes))
+
+	// Save metadata after Phase 3
+	if err := m.saveMetadata(); err != nil {
+		log.Printf("⚠ Warning: failed to save metadata after quorum distribution: %v", err)
+	} else {
+		log.Printf("✓ Metadata saved after quorum distribution")
+	}
 
 	// Setup quorum for quorum nodes
 	log.Printf("\n================== PHASE 4: Quorum Setup ==================")
@@ -357,6 +378,13 @@ transactionNodeCount = m.config.MaxTransactionNodes // Always start max nodes
 		}
 	}
 	log.Printf("Token generation complete: %d/%d nodes have tokens", tokenGenSuccess, len(m.nodes))
+
+	// Save metadata after Phase 5
+	if err := m.saveMetadata(); err != nil {
+		log.Printf("⚠ Warning: failed to save metadata after token generation: %v", err)
+	} else {
+		log.Printf("✓ Metadata saved after token generation")
+	}
 
 	// Save metadata
 	log.Printf("\n================== PHASE 6: Finalization ==================")
