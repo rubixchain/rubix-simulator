@@ -395,7 +395,7 @@ class RubixManager:
             )
             
             self.nodes[node_id] = node_info
-            
+
             if is_quorum:
                 # Add to quorum list
                 quorum_list.append({
@@ -403,6 +403,12 @@ class RubixManager:
                     "address": did
                 })
                 logger.info(f"  Added {node_id} to quorum list (total quorum members: {len(quorum_list)})")
+
+            # Save metadata incrementally after each node starts
+            if not self._save_metadata():
+                logger.warning(f"  ⚠ Warning: failed to save metadata after starting {node_id}")
+            else:
+                logger.info(f"  ✓ Metadata updated with {node_id}")
         
         # Phase 2: DID Registration
         logger.info("\n================== PHASE 2: DID Registration ==================")
@@ -420,7 +426,13 @@ class RubixManager:
                 logger.warning(f"  ⚠ WARNING: Failed to register DID for {node_id}")
         
         logger.info(f"DID registration complete: {registration_success}/{len(self.nodes)} nodes registered")
-        
+
+        # Save metadata after Phase 2
+        if not self._save_metadata():
+            logger.warning("⚠ Warning: failed to save metadata after DID registration")
+        else:
+            logger.info("✓ Metadata saved after DID registration")
+
         # Phase 3: Quorum List Distribution
         logger.info("\n================== PHASE 3: Quorum List Distribution ==================")
         logger.info(f"Distributing quorum list to all {len(self.nodes)} nodes...")
@@ -437,7 +449,13 @@ class RubixManager:
                 logger.error(f"  ✗ ERROR: Failed to add quorum to {node_id}")
         
         logger.info(f"Quorum configuration complete: {quorum_add_success}/{len(self.nodes)} nodes configured")
-        
+
+        # Save metadata after Phase 3
+        if not self._save_metadata():
+            logger.warning("⚠ Warning: failed to save metadata after quorum distribution")
+        else:
+            logger.info("✓ Metadata saved after quorum distribution")
+
         # Phase 4: Quorum Setup
         logger.info("\n================== PHASE 4: Quorum Setup ==================")
         logger.info(f"Setting up {self.config.quorum_node_count} quorum nodes with quorum-specific configuration...")
@@ -508,7 +526,13 @@ class RubixManager:
                 logger.error(f"  ✗ FAILED: Token generation failed for {node_id}")
         
         logger.info(f"Token generation complete: {token_gen_success}/{len(self.nodes)} nodes have tokens")
-        
+
+        # Save metadata after Phase 5
+        if not self._save_metadata():
+            logger.warning("⚠ Warning: failed to save metadata after token generation")
+        else:
+            logger.info("✓ Metadata saved after token generation")
+
         # Phase 6: Finalization
         logger.info("\n================== PHASE 6: Finalization ==================")
         if not self._save_metadata():
@@ -533,6 +557,266 @@ class RubixManager:
             logger.info("✓ All nodes successfully configured and ready!")
         
         return True
+
+    def resume_from_node(self, transaction_node_count: int, resume_from_index: int) -> bool:
+        """Resume node startup from a specific index
+
+        Args:
+            transaction_node_count: Total number of transaction nodes desired
+            resume_from_index: Index to resume from (e.g., 9 to start from node 9)
+
+        Returns:
+            True if successful, False otherwise
+        """
+        logger.info(f"\n================== RESUME MODE ==================")
+        logger.info(f"Resuming from index: {resume_from_index}")
+        logger.info(f"Target transaction nodes: {transaction_node_count}")
+
+        # Load existing metadata
+        metadata = self._load_metadata()
+        if not metadata:
+            logger.error("✗ ERROR: No existing metadata found. Cannot resume without prior setup.")
+            logger.error("Hint: Use --fresh for a new setup, or start normally first.")
+            return False
+
+        # Load existing nodes into self.nodes
+        for node_id, node_data in metadata.items():
+            node_info = NodeInfo.from_dict(node_data)
+            self.nodes[node_id] = node_info
+
+        logger.info(f"✓ Loaded {len(self.nodes)} existing nodes from metadata")
+
+        # Verify existing nodes are actually running
+        logger.info("Verifying existing nodes...")
+        running_count = 0
+        for node_id, node_info in list(self.nodes.items()):
+            if self._is_node_running(node_info.server_port):
+                logger.info(f"  ✓ {node_id} is running on port {node_info.server_port}")
+                running_count += 1
+            else:
+                logger.warning(f"  ⚠ {node_id} is NOT running (port {node_info.server_port})")
+
+        logger.info(f"Found {running_count}/{len(self.nodes)} nodes running")
+
+        # Calculate total nodes needed
+        total_nodes = self.config.quorum_node_count + transaction_node_count
+
+        # Verify resume makes sense
+        if resume_from_index >= total_nodes:
+            logger.error(f"✗ ERROR: Resume index {resume_from_index} is >= total nodes {total_nodes}")
+            return False
+
+        if resume_from_index < 0:
+            logger.error(f"✗ ERROR: Resume index must be >= 0")
+            return False
+
+        # Setup platform (if needed)
+        if not self._setup_rubix_platform():
+            return False
+
+        # Build quorum list from existing nodes
+        quorum_list = []
+        for node_id, node_info in self.nodes.items():
+            if node_info.is_quorum and node_info.did:
+                quorum_list.append({
+                    "type": 2,
+                    "address": node_info.did
+                })
+
+        logger.info(f"✓ Built quorum list with {len(quorum_list)} existing quorum nodes")
+
+        # Phase 1: Start missing nodes
+        logger.info(f"\n================== PHASE 1: Starting Nodes from Index {resume_from_index} ==================")
+
+        nodes_to_start = total_nodes - resume_from_index
+        logger.info(f"Will start {nodes_to_start} nodes (indices {resume_from_index} to {total_nodes-1})")
+
+        for i in range(resume_from_index, total_nodes):
+            node_id = f"node_{self.config.base_server_port}_{i}"
+            server_port = self.config.base_server_port + i
+            grpc_port = self.config.base_grpc_port + i
+            is_quorum = i < self.config.quorum_node_count
+
+            # Check if already exists
+            if node_id in self.nodes:
+                logger.info(f"[{i+1}/{total_nodes}] {node_id} already exists, skipping...")
+                continue
+
+            node_type = "quorum" if is_quorum else "transaction"
+            logger.info(f"[{i+1}/{total_nodes}] Starting {node_id} ({node_type} node) on port {server_port}")
+
+            # Start node process
+            if not self._start_node_process(node_id, i):
+                logger.error(f"✗ Failed to start {node_id}")
+                return False
+
+            # Wait for node to be ready
+            client = RubixClient(f"http://localhost:{server_port}")
+            if not client.wait_for_node(self.config.node_startup_timeout):
+                logger.error(f"✗ {node_id} failed to become ready")
+                return False
+
+            # Create DID
+            logger.info(f"  Creating DID for {node_id}...")
+            try:
+                did, peer_id = client.create_did(self.config.default_priv_key_password)
+            except Exception as e:
+                logger.error(f"✗ Failed to create DID for {node_id}: {e}")
+                return False
+
+            # Store node info
+            node_info = NodeInfo(
+                node_id=node_id,
+                server_port=server_port,
+                grpc_port=grpc_port,
+                did=did,
+                peer_id=peer_id,
+                is_quorum=is_quorum,
+                status="running"
+            )
+
+            self.nodes[node_id] = node_info
+
+            if is_quorum:
+                # Add to quorum list
+                quorum_list.append({
+                    "type": 2,
+                    "address": did
+                })
+
+            # Save metadata incrementally after each new node starts
+            if not self._save_metadata():
+                logger.warning(f"  ⚠ Warning: failed to save metadata after starting {node_id}")
+            else:
+                logger.info(f"  ✓ Metadata updated with {node_id}")
+
+            logger.info(f"  ✓ {node_id} started successfully")
+
+        logger.info(f"✓ All new nodes started")
+
+        # Phase 2: Register DIDs for new nodes
+        logger.info(f"\n================== PHASE 2: DID Registration ==================")
+
+        registration_success = 0
+        for i in range(resume_from_index, total_nodes):
+            node_id = f"node_{self.config.base_server_port}_{i}"
+            if node_id not in self.nodes:
+                continue
+
+            node_info = self.nodes[node_id]
+            logger.info(f"Registering DID for {node_id}...")
+
+            client = RubixClient(f"http://localhost:{node_info.server_port}")
+            if client.register_did(node_info.did, self.config.default_priv_key_password):
+                registration_success += 1
+            else:
+                logger.warning(f"  ⚠ Failed to register DID for {node_id}")
+
+        logger.info(f"✓ Registered {registration_success} new DIDs")
+
+        # Save metadata after Phase 2
+        if not self._save_metadata():
+            logger.warning("⚠ Warning: failed to save metadata after DID registration")
+        else:
+            logger.info("✓ Metadata saved after DID registration")
+
+        # Phase 3: Add quorum to ALL nodes (existing + new)
+        logger.info(f"\n================== PHASE 3: Quorum Distribution ==================")
+        logger.info(f"Distributing quorum list ({len(quorum_list)} members) to all nodes...")
+
+        quorum_add_success = 0
+        for node_id, node_info in self.nodes.items():
+            client = RubixClient(f"http://localhost:{node_info.server_port}")
+            logger.info(f"  Adding quorum to {node_id}...")
+            if client.add_quorum(quorum_list):
+                quorum_add_success += 1
+            else:
+                logger.warning(f"  ⚠ Failed to add quorum to {node_id}")
+
+        logger.info(f"✓ Quorum distributed to {quorum_add_success}/{len(self.nodes)} nodes")
+
+        # Save metadata after Phase 3
+        if not self._save_metadata():
+            logger.warning("⚠ Warning: failed to save metadata after quorum distribution")
+        else:
+            logger.info("✓ Metadata saved after quorum distribution")
+
+        # Phase 4: Setup quorum for new quorum nodes (if any)
+        logger.info(f"\n================== PHASE 4: Quorum Setup ==================")
+
+        quorum_setup_success = 0
+        for i in range(resume_from_index, total_nodes):
+            node_id = f"node_{self.config.base_server_port}_{i}"
+            if node_id not in self.nodes:
+                continue
+
+            node_info = self.nodes[node_id]
+            if node_info.is_quorum:
+                client = RubixClient(f"http://localhost:{node_info.server_port}")
+                logger.info(f"  Setting up quorum for {node_id}...")
+                if client.setup_quorum(node_info.did, self.config.default_quorum_key_password, self.config.default_priv_key_password):
+                    quorum_setup_success += 1
+                else:
+                    logger.warning(f"  ⚠ Failed to setup quorum for {node_id}")
+
+        logger.info(f"✓ Quorum setup complete for new nodes")
+
+        # Phase 5: Generate tokens for new nodes
+        logger.info(f"\n================== PHASE 5: Token Generation ==================")
+
+        token_gen_success = 0
+        for i in range(resume_from_index, total_nodes):
+            node_id = f"node_{self.config.base_server_port}_{i}"
+            if node_id not in self.nodes:
+                continue
+
+            node_info = self.nodes[node_id]
+            logger.info(f"  Generating tokens for {node_id}...")
+
+            client = RubixClient(f"http://localhost:{node_info.server_port}")
+            if client.generate_test_tokens(node_info.did, 100, self.config.default_priv_key_password):
+                token_gen_success += 1
+            else:
+                logger.warning(f"  ⚠ Failed to generate tokens for {node_id}")
+
+        logger.info(f"✓ Tokens generated for {token_gen_success} new nodes")
+
+        # Save metadata after Phase 5
+        if not self._save_metadata():
+            logger.warning("⚠ Warning: failed to save metadata after token generation")
+        else:
+            logger.info("✓ Metadata saved after token generation")
+
+        # Phase 6: Save updated metadata
+        logger.info(f"\n================== PHASE 6: Finalization ==================")
+        if not self._save_metadata():
+            logger.warning("⚠ Warning: failed to save metadata")
+        else:
+            logger.info("✓ Metadata saved successfully")
+
+        # Summary
+        logger.info("\n================== RESUME COMPLETE ==================")
+        logger.info("Summary:")
+        logger.info(f"  - Total nodes now: {len(self.nodes)}")
+        logger.info(f"  - Nodes started this session: {total_nodes - resume_from_index}")
+        logger.info(f"  - New DIDs registered: {registration_success}")
+        logger.info(f"  - Quorum distributed to: {quorum_add_success}/{len(self.nodes)} nodes")
+        logger.info(f"  - New tokens generated: {token_gen_success}")
+
+        logger.info("✓ Resume completed successfully!")
+        return True
+
+    def _is_node_running(self, port: int) -> bool:
+        """Check if a node is running on the specified port"""
+        try:
+            import socket
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(1)
+            result = sock.connect_ex(('localhost', port))
+            sock.close()
+            return result == 0
+        except Exception:
+            return False
 
     def _start_node_process(self, node_id: str, index: int) -> bool:
         """Start a single node process"""
@@ -804,17 +1088,22 @@ def main():
     parser.add_argument("--nodes", type=int, default=5, help="Number of transaction nodes to start (2-20)")
     parser.add_argument("--fresh", action="store_true", help="Fresh start - clean existing data")
     parser.add_argument("--restart", action="store_true", help="Restart using existing metadata")
-    
+    parser.add_argument("--resume-from", type=int, metavar="INDEX", help="Resume node startup from specific index (e.g., 9 to start from node 9)")
+
     args = parser.parse_args()
-    
+
     # Create configuration
     config = RubixConfig()
-    
+
     # Create manager
     manager = RubixManager(config)
-    
+
     try:
-        if args.restart:
+        if args.resume_from is not None:
+            logger.info(f"Resuming node startup from index {args.resume_from}...")
+            logger.info(f"Target: {args.nodes} transaction nodes total")
+            success = manager.resume_from_node(args.nodes, args.resume_from)
+        elif args.restart:
             logger.info("Restarting nodes using existing metadata...")
             success = manager.start_nodes(2, fresh=False)  # Default to 2 for restart
         else:
