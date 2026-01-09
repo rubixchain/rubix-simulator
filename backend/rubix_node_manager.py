@@ -359,10 +359,16 @@ class RubixManager:
         
         for i in range(total_nodes):
             node_id = f"node_{self.config.base_server_port}_{i}"
-            server_port = self.config.base_server_port + i
-            grpc_port = self.config.base_grpc_port + i
+
+            # Calculate actual port with skip logic (must match _start_node_process logic)
+            port_offset = i
+            if i >= 10:
+                port_offset += 1  # Skip 110
+
+            server_port = self.config.base_server_port + port_offset
+            grpc_port = self.config.base_grpc_port + port_offset
             is_quorum = i < self.config.quorum_node_count
-            
+
             node_type = "quorum" if is_quorum else "transaction"
             logger.info(f"[{i+1}/{total_nodes}] Starting {node_id} ({node_type} node) on port {server_port}")
             
@@ -633,8 +639,14 @@ class RubixManager:
 
         for i in range(resume_from_index, total_nodes):
             node_id = f"node_{self.config.base_server_port}_{i}"
-            server_port = self.config.base_server_port + i
-            grpc_port = self.config.base_grpc_port + i
+
+            # Calculate actual port with skip logic (must match _start_node_process logic)
+            port_offset = i
+            if i >= 10:
+                port_offset += 1  # Skip 110
+
+            server_port = self.config.base_server_port + port_offset
+            grpc_port = self.config.base_grpc_port + port_offset
             is_quorum = i < self.config.quorum_node_count
 
             # Check if already exists

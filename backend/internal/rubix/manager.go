@@ -133,8 +133,15 @@ transactionNodeCount = m.config.MaxTransactionNodes // Always start max nodes
 
 	for i := 0; i < totalNodes; i++ {
 		nodeID := fmt.Sprintf("node_%d_%d", m.config.BaseServerPort, i)
-		serverPort := m.config.BaseServerPort + i
-		grpcPort := m.config.BaseGrpcPort + i
+
+		// Calculate actual port with skip logic (must match startNodeProcess logic)
+		portOffset := i
+		if i >= 10 {
+			portOffset++ // Skip 110
+		}
+
+		serverPort := m.config.BaseServerPort + portOffset
+		grpcPort := m.config.BaseGrpcPort + portOffset
 		isQuorum := i < m.config.QuorumNodeCount
 
 		nodeType := "transaction"
