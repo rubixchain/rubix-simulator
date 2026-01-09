@@ -126,30 +126,41 @@ class RubixClient:
     def create_did(self, password: str) -> Tuple[str, str]:
         """Create DID for the node"""
         logger.info(f"  Creating DID for node at {self.base_url}...")
-        
-        payload = {"privPWD": password}
-        response = self.session.post(f"{self.base_url}/api/create-did", json=payload)
-        
+
+        # Prepare did_config matching Go implementation
+        did_config = {
+            "Type": 4,
+            "priv_pwd": password,
+            "mnemonic_file": "",
+            "childPath": 0
+        }
+
+        # Send as multipart/form-data with did_config field
+        files = {
+            'did_config': (None, json.dumps(did_config), 'application/json')
+        }
+        response = self.session.post(f"{self.base_url}/api/createdid", files=files)
+
         if response.status_code != 200:
             raise Exception(f"Failed to create DID: {response.status_code} - {response.text}")
-        
+
         data = response.json()
         if not data.get("status", False):
             raise Exception(f"Create DID failed: {data.get('message', 'Unknown error')}")
-        
+
         result = data.get("result", {})
         did = result.get("did", "")
         peer_id = result.get("peerID", "")
-        
+
         # Log with truncated values for readability
         did_display = did[:16] + "..." if len(did) > 16 else did
         peer_id_display = peer_id[:8] + "..." if len(peer_id) > 8 else peer_id
-        
+
         if not peer_id:
             logger.warning(f"  ⚠ DID created: {did_display} (WARNING: PeerID is empty!)")
         else:
             logger.info(f"  ✓ DID created: {did_display} (PeerID: {peer_id_display})")
-        
+
         return did, peer_id
 
     def register_did(self, did: str, password: str) -> bool:
@@ -183,8 +194,8 @@ class RubixClient:
     def add_quorum(self, quorum_list: List[dict]) -> bool:
         """Add quorum list to the node"""
         logger.info(f"  Adding quorum list to node at {self.base_url}...")
-        
-        response = self.session.post(f"{self.base_url}/api/add-quorum", json=quorum_list)
+
+        response = self.session.post(f"{self.base_url}/api/addquorum", json=quorum_list)
         
         if response.status_code != 200:
             logger.error(f"  ✗ Failed to add quorum: {response.status_code} - {response.text}")
