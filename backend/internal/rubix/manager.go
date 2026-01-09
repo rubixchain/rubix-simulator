@@ -495,10 +495,16 @@ func (m *Manager) startNodeProcess(nodeID string, index int) error {
 
 	// Build args (removed -dir flag)
 	// Node number (-n) starts from 100
+	// Skip 110 to avoid privileged port conflict (ping port 938)
+	nValue := index + 100
+	if index >= 10 {
+		nValue++ // For index 10+, add 1 to skip 110 (so index 10 gets 111, index 11 gets 112, etc.)
+	}
+
 	args := []string{
 		"run",
 		"-p", nodeID,
-		"-n", fmt.Sprintf("%d", index+100),
+		"-n", fmt.Sprintf("%d", nValue),
 		"-s",
 		"-port", fmt.Sprintf("%d", port),
 		"-testNet",

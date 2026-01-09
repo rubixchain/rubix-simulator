@@ -608,10 +608,15 @@ class RubixRestartManager:
 
         # Build command arguments (using ports from metadata)
         # Node number (-n) starts from 100
+        # Skip 110 to avoid privileged port conflict (ping port 938)
+        n_value = index + 100
+        if index >= 10:
+            n_value += 1  # For index 10+, add 1 to skip 110 (so index 10 gets 111, index 11 gets 112, etc.)
+
         args = [
             "run",
             "-p", node_info.id,
-            "-n", str(index + 100),
+            "-n", str(n_value),
             "-s",
             "-port", str(node_info.server_port),
             "-testNet",
