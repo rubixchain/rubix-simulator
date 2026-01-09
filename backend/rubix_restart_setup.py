@@ -607,11 +607,10 @@ class RubixRestartManager:
         # We just verify they exist (done in _verify_node_directories)
 
         # Build command arguments (using ports from metadata)
-        # Node number (-n) starts from 100
-        # Skip 110 to avoid privileged port conflict (ping port 938)
-        n_value = index + 100
-        if index >= 10:
-            n_value += 1  # For index 10+, add 1 to skip 110 (so index 10 gets 111, index 11 gets 112, etc.)
+        # Node number (-n) must match the port: calculate -n from the stored port
+        # If port is 20100, -n should be 100; if port is 20111, -n should be 111
+        port_offset = node_info.server_port - self.config.base_server_port
+        n_value = 100 + port_offset  # -n value matches the port offset
 
         args = [
             "run",

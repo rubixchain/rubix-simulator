@@ -820,10 +820,16 @@ class RubixManager:
 
     def _start_node_process(self, node_id: str, index: int) -> bool:
         """Start a single node process"""
-        
-        # Calculate ports
-        port = self.config.base_server_port + index
-        grpc_port = self.config.base_grpc_port + index
+
+        # Calculate ports and -n value
+        # Skip port 20110 and -n 110 to avoid privileged port conflict (ping port 938)
+        # The -n value and port must match: if -n is 111, port should be 20111
+        port_offset = index
+        if index >= 10:
+            port_offset += 1  # Skip 110: index 10 gets port offset 11, index 11 gets 12, etc.
+
+        port = self.config.base_server_port + port_offset
+        grpc_port = self.config.base_grpc_port + port_offset
         
         # Create node directory
         node_dir = self.data_dir / "nodes" / node_id
@@ -871,11 +877,8 @@ class RubixManager:
             shutil.copy2(src_swarm_key, dest_swarm_key)
 
         # Build command arguments
-        # Node number (-n) starts from 100
-        # Skip 110 to avoid privileged port conflict (ping port 938)
-        n_value = index + 100
-        if index >= 10:
-            n_value += 1  # For index 10+, add 1 to skip 110 (so index 10 gets 111, index 11 gets 112, etc.)
+        # Node number (-n) matches port offset to keep them synchronized
+        n_value = 100 + port_offset  # -n value matches the port offset
 
         args = [
             "run",

@@ -489,17 +489,17 @@ func (m *Manager) startNodeProcess(nodeID string, index int) error {
 		}
 	}
 
-	// Calculate ports
-	port := m.config.BaseServerPort + index
-	grpcPort := m.config.BaseGrpcPort + index
-
-	// Build args (removed -dir flag)
-	// Node number (-n) starts from 100
-	// Skip 110 to avoid privileged port conflict (ping port 938)
-	nValue := index + 100
+	// Calculate ports and -n value
+	// Skip port 20110 and -n 110 to avoid privileged port conflict (ping port 938)
+	// The -n value and port must match: if -n is 111, port should be 20111
+	portOffset := index
 	if index >= 10 {
-		nValue++ // For index 10+, add 1 to skip 110 (so index 10 gets 111, index 11 gets 112, etc.)
+		portOffset++ // Skip 110: index 10 gets port offset 11, index 11 gets 12, etc.
 	}
+
+	port := m.config.BaseServerPort + portOffset
+	grpcPort := m.config.BaseGrpcPort + portOffset
+	nValue := 100 + portOffset // -n value matches the port offset
 
 	args := []string{
 		"run",
