@@ -105,19 +105,21 @@ class RubixClient:
     def wait_for_node(self, timeout: int = 120) -> bool:
         """Wait for node to be ready"""
         logger.info(f"  Waiting for node at {self.base_url} to be ready (timeout: {timeout}s)...")
-        
+
         start_time = time.time()
         while time.time() - start_time < timeout:
             try:
-                response = self.session.get(f"{self.base_url}/api/basic-info")
+                response = self.session.get(f"{self.base_url}/api/node-status")
                 if response.status_code == 200:
-                    logger.info(f"  ✓ Node at {self.base_url} is ready")
-                    return True
+                    data = response.json()
+                    if data.get("status", False):
+                        logger.info(f"  ✓ Node at {self.base_url} is ready")
+                        return True
             except requests.exceptions.RequestException:
                 pass
-            
+
             time.sleep(2)
-        
+
         logger.error(f"  ✗ Node at {self.base_url} failed to start within {timeout}s")
         return False
 
